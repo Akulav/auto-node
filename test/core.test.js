@@ -21,6 +21,13 @@ const { HOSTNAME_RE, SITE_NAME_RE, normalizeHostname } = await import('../src/ut
 before(() => config.load());
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
+test('site start scripts live outside the root-only config folder', () => {
+  // The site user can't enter configDir (mode 700), so scripts there fail with "Permission denied".
+  const rel = path.relative(config.paths.configDir, config.paths.runDir);
+  assert.ok(rel.startsWith('..') || path.isAbsolute(rel), `runDir ${config.paths.runDir} is inside ${config.paths.configDir}`);
+  assert.ok(fs.statSync(config.paths.runDir).isDirectory());
+});
+
 test('private address detection', () => {
   for (const a of ['127.0.0.1', '::1', '10.1.2.3', '192.168.1.20', '172.20.0.5', '::ffff:192.168.0.9', 'fd00::1', '100.100.1.1']) assert.equal(auth.isPrivateAddress(a), true, a);
   for (const a of ['8.8.8.8', '172.32.0.1', '1.1.1.1', '2606:4700::1111']) assert.equal(auth.isPrivateAddress(a), false, a);

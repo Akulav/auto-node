@@ -1,6 +1,6 @@
 {
   "name": "autonode",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A beautiful, simple control panel for hosting Node.js websites on your own Linux machine.",
   "type": "module",
   "bin": {
@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node bin/autonode.js serve",
     "dev": "node bin/autonode.js serve --dev",
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "lint": "node scripts/check-syntax.js"
   },
   "engines": {

@@ -51,7 +51,7 @@ Each website has:
 
 - a folder: `/var/lib/autonode/sites/<name>` owned by `autonode:autonode`
 - a local port (from `3001` up), passed to the app as `PORT`
-- `/etc/autonode/run/<name>.sh` — `cd` + `exec <start command>`
+- `/var/lib/autonode/run/<name>.sh` — `cd` + `exec <start command>` (root-owned, mode 755: the site user can run it but not change it; it can't live in `/etc/autonode`, which is root-only)
 - `/etc/autonode/env/<name>.env` — `PORT`, `NODE_ENV=production`, `HOST`, `PATH` and the user's variables
 - `/etc/systemd/system/autonode-site-<name>.service` — `User=autonode`, `Restart=always`, `NoNewPrivileges`, `ProtectSystem=full`, `PrivateTmp`
 

@@ -21,6 +21,8 @@ export const paths = {
   certsDir: path.join(configDir, 'certs'),
   envDir: path.join(configDir, 'env'),
   sitesDir: path.join(dataDir, 'sites'),
+  // Start scripts must be readable by the site user, so they can't live in the root-only configDir.
+  runDir: path.join(dataDir, 'run'),
   homeDir: path.join(dataDir, 'home'),
   tmpDir: path.join(dataDir, 'tmp'),
   unitDir: DEV ? path.join(devRoot, 'systemd') : '/etc/systemd/system',
@@ -45,11 +47,14 @@ function defaults() {
 let state = null;
 
 function ensureDirs() {
-  for (const d of [paths.configDir, paths.certsDir, paths.envDir, paths.dataDir, paths.sitesDir, paths.homeDir, paths.tmpDir]) {
+  for (const d of [paths.configDir, paths.certsDir, paths.envDir, paths.dataDir, paths.sitesDir, paths.runDir, paths.homeDir, paths.tmpDir]) {
     fs.mkdirSync(d, { recursive: true });
   }
   try {
-    fs.chmodSync(paths.configDir, 0o700);
+    fs.chmodSync(paths.configDir, 0o700); // secrets: root only
+    fs.chmodSync(paths.tmpDir, 0o700);
+    fs.chmodSync(paths.dataDir, 0o755); // site user must be able to reach sites/ and run/
+    fs.chmodSync(paths.runDir, 0o755); // root-owned: readable, not writable, by the site user
   } catch {}
 }
 

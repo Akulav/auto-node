@@ -125,9 +125,9 @@ Everything AutoNode stores lives in two folders:
   config.json       settings, websites, password hash, Cloudflare token (root-only)
   certs/            HTTPS certificates and private keys
   env/              environment variables for each website
-  run/              generated start scripts
 /var/lib/autonode/
   sites/<name>/     each website's files
+  run/              generated start scripts
   home/             npm cache for the site user
 /etc/systemd/system/autonode-site-<name>.service   one service per website
 ```
