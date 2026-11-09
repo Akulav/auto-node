@@ -57,6 +57,18 @@ function envFileContent(env) {
 
 /* ---------------------------------------------------------------- systemd */
 
+/**
+ * systemd's *TimestampMonotonic values are CLOCK_MONOTONIC microseconds — the
+ * same clock as process.hrtime(). Don't compare them with os.uptime(): inside
+ * LXC/Proxmox containers that reports the container's uptime, not the host's,
+ * which made every site show "Up 0s".
+ */
+export const monotonicNowUs = () => Number(process.hrtime.bigint() / 1000n);
+export function uptimeSeconds(sinceUs, nowUs = monotonicNowUs()) {
+  if (!Number.isFinite(sinceUs) || sinceUs <= 0) return null;
+  return Math.max(0, (nowUs - sinceUs) / 1e6);
+}
+
 const systemd = {
   /** Write script, env file and unit. Returns true if the unit changed. */
   async write(site, command) {
@@ -125,7 +137,7 @@ WantedBy=multi-user.target
     const props = 'ActiveState,SubState,MainPID,ActiveEnterTimestampMonotonic,MemoryCurrent,CPUUsageNSec,NRestarts,LoadState';
     const r = await run('systemctl', ['show', ...names.map(unitName), `--property=${props}`], { quiet: true });
     const blocks = r.stdout.trim().split(/\n\s*\n/);
-    const uptimeUs = os.uptime() * 1e6;
+    const nowUs = monotonicNowUs();
     names.forEach((name, i) => {
       const p = {};
       for (const line of (blocks[i] || '').split('\n')) {
@@ -157,7 +169,7 @@ WantedBy=multi-user.target
         memory: Number.isFinite(mem) && mem < 2 ** 60 ? mem : null,
         cpu,
         restarts: Number(p.NRestarts) || 0,
-        uptime: state === 'running' && since ? Math.max(0, (uptimeUs - since) / 1e6) : null,
+        uptime: state === 'running' ? uptimeSeconds(since, nowUs) : null,
       };
     });
     return out;

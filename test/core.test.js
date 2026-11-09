@@ -28,6 +28,15 @@ test('site start scripts live outside the root-only config folder', () => {
   assert.ok(fs.statSync(config.paths.runDir).isDirectory());
 });
 
+test('site uptime uses the same monotonic clock as systemd', async () => {
+  const { uptimeSeconds, monotonicNowUs } = await import('../src/runner.js');
+  const now = monotonicNowUs();
+  // A site started 90 s ago, even when the machine (container) itself booted only 10 s ago.
+  assert.equal(Math.round(uptimeSeconds(now - 90e6, now)), 90);
+  assert.equal(uptimeSeconds(0, now), null);
+  assert.ok(monotonicNowUs() >= now);
+});
+
 test('private address detection', () => {
   for (const a of ['127.0.0.1', '::1', '10.1.2.3', '192.168.1.20', '172.20.0.5', '::ffff:192.168.0.9', 'fd00::1', '100.100.1.1']) assert.equal(auth.isPrivateAddress(a), true, a);
   for (const a of ['8.8.8.8', '172.32.0.1', '1.1.1.1', '2606:4700::1111']) assert.equal(auth.isPrivateAddress(a), false, a);

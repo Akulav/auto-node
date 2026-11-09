@@ -8,6 +8,7 @@ All notable changes to AutoNode are documented here. The format follows [Keep a 
 
 - Large uploads were unreliable: files were sent in one request, so any network hiccup lost the whole upload. Uploads (website files and backup imports) now go in 8 MB pieces with automatic retries and resume, show speed and progress, check free disk space first, and send big files one at a time.
 - Icons in the website Addresses and Details cards were drawn far too large.
+- Website "Up" time was stuck at 0 s inside containers (Proxmox/LXC): it compared systemd's host-monotonic start time with the container's uptime. It now uses the same monotonic clock as systemd.
 
 ## [1.0.1] - 2026-11-09
 
