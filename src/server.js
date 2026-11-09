@@ -15,6 +15,7 @@ import * as network from './network.js';
 import * as selfupdate from './selfupdate.js';
 import * as proxy from './proxy.js';
 import * as backup from './backup.js';
+import * as uploads from './uploads.js';
 import crypto from 'node:crypto';
 import { runner, runnerKind, restoreChildren, stopAllChildren } from './runner.js';
 import { HttpError, readJson, readBody, sendJson, normalizeHostname } from './util.js';
@@ -212,6 +213,21 @@ on('PUT', '/api/sites/:name/file', async (req, res, p) => {
   return { ok: true };
 }, { raw: true });
 on('PUT', '/api/sites/:name/upload', async (req, res, p) => (await files.upload(p.name, q(req).get('path'), req), { ok: true }), { raw: true });
+// Chunked, resumable uploads (used for website files and backups).
+on('GET', '/api/chunk', async (req) => uploads.received(q(req).get('id')));
+on('PUT', '/api/chunk', async (req) => uploads.writeChunk(q(req).get('id'), q(req).get('offset'), q(req).get('total'), req));
+on('DELETE', '/api/chunk', async (req) => (uploads.discard(q(req).get('id')), { ok: true }));
+on('POST', '/api/sites/:name/upload-complete', async (req, res, p, body) => {
+  sites.getSite(p.name);
+  const tmp = uploads.take(body.id, body.total);
+  try {
+    await files.placeUpload(p.name, body.path, tmp);
+  } catch (err) {
+    uploads.discard(body.id);
+    throw err;
+  }
+  return { ok: true };
+});
 on('POST', '/api/sites/:name/mkdir', async (req, res, p, body) => (await files.mkdir(p.name, body.path), { ok: true }));
 on('POST', '/api/sites/:name/rename', async (req, res, p, body) => (files.rename(p.name, body.from, body.to), { ok: true }));
 on('POST', '/api/sites/:name/unzip', async (req, res, p, body) => (await files.unzip(p.name, body.path), { ok: true }));
@@ -336,6 +352,20 @@ on('PUT', '/api/backup/upload', async (req) => {
     throw err;
   }
 });
+on('POST', '/api/backup/upload-complete', async (req, res, p, body) => {
+  const tmp = uploads.take(body.id, body.total);
+  const file = path.join(config.paths.tmpDir, `upload-${body.id}.bin`);
+  uploads.moveFile(tmp, file);
+  try {
+    const summary = await backup.inspect(file);
+    const token = crypto.randomUUID();
+    pendingImports.set(token, { file, at: Date.now() });
+    return { token, summary };
+  } catch (err) {
+    fs.rmSync(file, { force: true });
+    throw err;
+  }
+});
 on('POST', '/api/backup/restore', async (req, res, p, body) => {
   const pending = pendingImports.get(body.token);
   if (!pending) throw new HttpError(410, 'That upload expired. Please choose the file again.');
@@ -390,7 +420,7 @@ async function handler(req, res) {
     const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
     try {
       if (!r.open && !auth.isAuthenticated(req)) throw new HttpError(401, 'Please sign in.');
-      const isRaw = req.method === 'PUT' && /\/(upload|file)$/.test(url.pathname); // streamed bodies (files, backups)
+      const isRaw = req.method === 'PUT' && /\/(upload|file|chunk)$/.test(url.pathname); // streamed bodies (files, backups)
       const body = req.method === 'GET' || req.method === 'DELETE' || isRaw ? {} : await readJson(req, 2 * 1024 * 1024);
       const out = await r.handler(req, res, params, body);
       if (out !== undefined && !res.headersSent) sendJson(res, 200, out);

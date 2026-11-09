@@ -86,6 +86,18 @@ export async function upload(name, rel, req) {
   await chownEach(chain);
 }
 
+/** Move a finished chunked upload into the website folder. */
+export async function placeUpload(name, rel, tmpFile) {
+  const { full, root } = resolveInSite(name, rel);
+  if (full === root) throw new HttpError(400, 'Missing file name');
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  const { moveFile } = await import('./uploads.js');
+  moveFile(tmpFile, full);
+  const chain = [];
+  for (let p = full; p !== root && p.startsWith(root); p = path.dirname(p)) chain.push(p);
+  await chownEach(chain);
+}
+
 async function chownEach(list) {
   const { siteUser } = await import('./runner.js');
   const ids = await siteUser();

@@ -70,6 +70,9 @@ function icon(name, cls) {
   s.setAttribute('stroke-linecap', 'round');
   s.setAttribute('stroke-linejoin', 'round');
   s.setAttribute('aria-hidden', 'true');
+  // Default to text size; CSS (nav, buttons, tiles) overrides where a fixed size is wanted.
+  s.setAttribute('width', '1.15em');
+  s.setAttribute('height', '1.15em');
   if (cls) s.setAttribute('class', cls);
   s.innerHTML = ICONS[name] || '';
   return s;
@@ -128,6 +131,75 @@ async function api(method, url, body, { raw } = {}) {
   }
   if (!res.ok) throw new ApiError(data.error || `Request failed (${res.status})`);
   return data;
+}
+
+/* ---- chunked, resumable uploads ---- */
+
+const CHUNK = 8 * 1024 * 1024;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function putChunk(id, offset, total, blob, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', `/api/chunk?id=${id}&offset=${offset}&total=${total}`);
+    xhr.timeout = 180_000;
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded);
+    const fail = (msg, status = 0) => {
+      const err = new Error(msg);
+      // Retry network errors, timeouts, 408/409/429 and 5xx (except "disk full"); give up on other client errors.
+      err.fatal = status === 507 || (status >= 400 && status < 500 && ![408, 409, 429].includes(status));
+      reject(err);
+    };
+    xhr.onload = () => {
+      let data = {};
+      try {
+        data = JSON.parse(xhr.responseText || '{}');
+      } catch {}
+      if (xhr.status < 300) resolve(data);
+      else fail(data.error || `Upload failed (${xhr.status})`, xhr.status);
+    };
+    xhr.onerror = () => fail('Connection lost');
+    xhr.ontimeout = () => fail('Upload timed out');
+    xhr.send(blob);
+  });
+}
+
+/**
+ * Upload a File in 8 MB pieces. Each piece is retried with back-off, and after a
+ * failure the upload continues from what the server already has.
+ * Returns the upload id to finalise with a "*-complete" endpoint.
+ */
+async function uploadResumable(file, { onProgress = () => {}, onRetry = () => {} } = {}) {
+  const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const total = file.size;
+  let offset = 0;
+  let failures = 0;
+  let pending = true; // ensures empty files still send one (empty) piece
+  while (pending || offset < total) {
+    pending = false;
+    const start = offset;
+    const end = Math.min(start + CHUNK, total);
+    try {
+      const r = await putChunk(id, start, total, file.slice(start, end), (n) => onProgress(start + n, total));
+      offset = r.received ?? end;
+      failures = 0;
+      onProgress(offset, total);
+    } catch (err) {
+      if (err.fatal || ++failures > 10) {
+        fetch(`/api/chunk?id=${id}`, { method: 'DELETE' }).catch(() => {});
+        throw err;
+      }
+      onRetry(failures, err);
+      await sleep(Math.min(20_000, 1000 * 2 ** Math.min(failures, 5)));
+      try {
+        offset = (await api('GET', `/api/chunk?id=${id}`)).received;
+      } catch {
+        offset = start;
+      }
+      if (total === 0) pending = true;
+    }
+  }
+  return id;
 }
 
 function toast(msg, kind = '') {
@@ -934,15 +1006,9 @@ function siteFiles(site) {
     }
   }
 
-  function uploadOne(path, file, onProgress) {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('PUT', api_(`/upload?path=${encodeURIComponent(path)}`));
-      xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded);
-      xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(JSON.parse(xhr.responseText || '{}').error || `Upload failed (${xhr.status})`)));
-      xhr.onerror = () => reject(new Error('Upload failed'));
-      xhr.send(file);
-    });
+  async function uploadOne(path, file, onProgress, onRetry) {
+    const id = await uploadResumable(file, { onProgress, onRetry });
+    await api('POST', api_('/upload-complete'), { id, path, total: file.size });
   }
 
   async function uploadFiles(items, { unzip = false } = {}) {
@@ -954,14 +1020,27 @@ function siteFiles(site) {
     const label = h('div', { class: 'small muted' }, `Uploading ${items.length} file${items.length > 1 ? 's' : ''}…`);
     const row = h('div', { class: 'card stack tight' }, label, h('div', { class: 'progress' }, bar));
     progressBox.append(row);
-    const update = () => (bar.style.width = ((([...loaded.values()].reduce((a, b) => a + b, 0)) / total) * 100).toFixed(1) + '%');
+    const t0 = Date.now();
+    let done = 0;
+    const update = () => {
+      const sent = [...loaded.values()].reduce((a, b) => a + b, 0);
+      bar.style.width = ((sent / total) * 100).toFixed(1) + '%';
+      const rate = sent / Math.max(1, (Date.now() - t0) / 1000);
+      label.textContent = `Uploading ${done}/${items.length} · ${fmtBytes(sent)} of ${fmtBytes(total)} · ${fmtBytes(rate)}/s`;
+    };
     let i = 0,
       failed = 0;
     const worker = async () => {
       while (i < items.length) {
         const [rel, file] = items[i++];
         try {
-          await uploadOne(join(cwd, rel), file, (n) => (loaded.set(rel, n), update()));
+          await uploadOne(
+            join(cwd, rel),
+            file,
+            (n) => (loaded.set(rel, n), update()),
+            (attempt) => (label.textContent = `Connection hiccup on ${rel} — retrying (${attempt})…`),
+          );
+          done++;
           loaded.set(rel, file.size);
           update();
         } catch (err) {
@@ -970,7 +1049,8 @@ function siteFiles(site) {
         }
       }
     };
-    await Promise.all([worker(), worker(), worker()]);
+    // Big files go one at a time (steadier); lots of small files go three at a time.
+    await Promise.all(items.some(([, f]) => f.size > 64 * 1024 * 1024) ? [worker()] : [worker(), worker(), worker()]);
     row.remove();
     if (unzip && !failed) await doUnzip(join(cwd, items[0][0]));
     else toast(failed ? `Uploaded with ${failed} error${failed > 1 ? 's' : ''}` : `Uploaded ${items.length} file${items.length > 1 ? 's' : ''} ✓`, failed ? 'bad' : '');
@@ -1836,10 +1916,20 @@ async function settingsView() {
   const importInput = h('input', { type: 'file', accept: '.json,.gz,.tar.gz,application/json,application/gzip', class: 'hidden', onchange: (e) => e.target.files[0] && importBackup(e.target.files[0]) });
   async function importBackup(file) {
     importInput.value = '';
-    const wait = sheet(() => h('div', { class: 'center' }, h('span', { class: 'spin', style: 'width:28px;height:28px;margin:8px auto 16px;display:block' }), h('h2', {}, 'Reading backup…'), h('p', { class: 'muted' }, `${file.name} · ${fmtBytes(file.size)}`)));
+    const bar = h('i', { style: 'width:0%' });
+    const status = h('p', { class: 'muted' }, `${file.name} · ${fmtBytes(file.size)}`);
+    const wait = sheet(() => h('div', { class: 'center' }, h('h2', { style: 'margin-bottom:8px' }, 'Uploading backup…'), status, h('div', { class: 'progress', style: 'margin-top:16px' }, bar)));
     let up;
     try {
-      up = await api('PUT', '/api/backup/upload', file, { raw: true });
+      const id = await uploadResumable(file, {
+        onProgress: (n, t) => {
+          bar.style.width = ((n / Math.max(1, t)) * 100).toFixed(1) + '%';
+          status.textContent = `${file.name} · ${fmtBytes(n)} of ${fmtBytes(t)}`;
+        },
+        onRetry: (a) => (status.textContent = `Connection hiccup — retrying (${a})…`),
+      });
+      status.textContent = 'Reading backup…';
+      up = await api('POST', '/api/backup/upload-complete', { id, total: file.size });
     } catch (err) {
       wait();
       return toast(err.message, 'bad');

@@ -38,7 +38,8 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/proxy.js` | Reverse proxy with SNI, WebSocket upgrade, HTTPS redirect, deploy-hook path |
 | `src/certs.js` | Store/validate certificates, SAN parsing, exact + wildcard matching |
 | `src/cloudflare.js` | Cloudflare API: zones, A records, dynamic DNS loop, Origin CA, SSL mode |
-| `src/files.js` | Path-confined file operations, streaming uploads, unzip |
+| `src/files.js` | Path-confined file operations, unzip, placing finished uploads |
+| `src/uploads.js` | Chunked, resumable uploads (idempotent pieces at byte offsets, free-space check, stale cleanup) |
 | `src/deploy.js` | Git connect/check/deploy, auto-update loop, webhook verification, workflow generator |
 | `src/network.js` | Interface info, static IP via `nmcli` or netplan |
 | `src/selfupdate.js` | Update AutoNode from its own git checkout |

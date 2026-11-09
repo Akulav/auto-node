@@ -2,6 +2,13 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-11-09
+
+### Fixed
+
+- Large uploads were unreliable: files were sent in one request, so any network hiccup lost the whole upload. Uploads (website files and backup imports) now go in 8 MB pieces with automatic retries and resume, show speed and progress, check free disk space first, and send big files one at a time.
+- Icons in the website Addresses and Details cards were drawn far too large.
+
 ## [1.0.1] - 2026-11-09
 
 ### Fixed

@@ -147,6 +147,8 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 .tiny { font-size: 12px; }
 .row { display: flex; align-items: center; gap: 10px; }
 .row.wrap { flex-wrap: wrap; }
+.row > svg, .kv svg, .stats svg { flex: none; color: var(--text-3); }
+a.row > svg { color: currentColor; }
 .row.between { justify-content: space-between; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
 .stack.tight { gap: 6px; }

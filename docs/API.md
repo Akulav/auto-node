@@ -35,6 +35,20 @@ The dashboard talks to AutoNode over a small JSON API on port `7070`. All routes
 | POST | `/api/sites/:name/hostnames` | `{ hostname }` — also creates the DNS record if Cloudflare is connected |
 | DELETE | `/api/sites/:name/hostnames/:host` | |
 
+## Chunked uploads
+
+Large files are sent in pieces so a dropped connection only costs one piece, not the whole file. The browser picks a random 32-hex-character `id`, then:
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| PUT | `/api/chunk?id=&offset=&total=` | Raw body = one piece (the app sends 8 MB). Idempotent: resending the same offset is safe. Returns `{ received }`. `409` if `offset` is past what the server has. `507` if the disk is too full. |
+| GET | `/api/chunk?id=` | `{ received }`: resume from here after a failure |
+| DELETE | `/api/chunk?id=` | Abandon an upload |
+| POST | `/api/sites/:name/upload-complete` | `{ id, path, total }`: move the finished file into the website |
+| POST | `/api/backup/upload-complete` | `{ id, total }`: same as the backup upload below, returns `{ token, summary }` |
+
+Unfinished pieces are kept in `/var/lib/autonode/tmp/uploads` and deleted after 24 hours.
+
 ## Files
 
 Paths are relative to the website folder and always start with `/`.

@@ -136,6 +136,35 @@ test('backup: settings-only and full export round-trip', async () => {
   await assert.rejects(backup.inspect(junk), /isn't an AutoNode backup/);
 });
 
+test('chunked uploads: resume, retry, ordering, completion', async () => {
+  const uploads = await import('../src/uploads.js');
+  const { Readable } = await import('node:stream');
+  const piece = (buf) => Object.assign(Readable.from([buf]), { headers: { 'content-length': String(buf.length) } });
+  const data = crypto.randomBytes(25_000);
+  const id = 'ab'.repeat(16);
+
+  await uploads.writeChunk(id, 0, data.length, piece(data.subarray(0, 10_000)));
+  assert.equal(uploads.received(id).received, 10_000);
+  // A retried piece (same offset) is harmless.
+  await uploads.writeChunk(id, 0, data.length, piece(data.subarray(0, 10_000)));
+  assert.equal(uploads.received(id).received, 10_000);
+  // A gap is refused so the client resyncs.
+  await assert.rejects(uploads.writeChunk(id, 20_000, data.length, piece(data.subarray(20_000))), (e) => e.status === 409);
+  assert.throws(() => uploads.take(id, data.length), /incomplete/);
+  await uploads.writeChunk(id, 10_000, data.length, piece(data.subarray(10_000, 20_000)));
+  await uploads.writeChunk(id, 20_000, data.length, piece(data.subarray(20_000)));
+  const tmpFile = uploads.take(id, data.length);
+  assert.ok(fs.readFileSync(tmpFile).equals(data));
+
+  await files.placeUpload('demo', '/media/big.bin', tmpFile);
+  assert.ok(fs.readFileSync(path.join(sites.siteDir('demo'), 'media', 'big.bin')).equals(data));
+  assert.equal(fs.existsSync(tmpFile), false);
+
+  // Pieces past the declared end and bad ids are rejected.
+  await assert.rejects(uploads.writeChunk('cd'.repeat(16), 0, 5, piece(Buffer.alloc(10))), /past the end/);
+  assert.throws(() => uploads.received('../etc'), /Invalid upload id/);
+});
+
 test('deploy workflow yaml mentions the site and secret name', () => {
   const y = deploy.workflowYaml({ name: 'demo', git: { branch: 'main' } }, 'https://demo.akulav.com');
   assert.match(y, /AUTONODE_DEPLOY_TOKEN/);
