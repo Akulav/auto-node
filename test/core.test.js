@@ -30,11 +30,12 @@ test('site start scripts live outside the root-only config folder', () => {
 
 test('site uptime uses the same monotonic clock as systemd', async () => {
   const { uptimeSeconds, monotonicNowUs } = await import('../src/runner.js');
+  // Fixed clock values: CI VMs can be booted < 90 s, so "now - 90 s" may be negative.
+  assert.equal(uptimeSeconds(1_000e6, 1_090e6), 90); // started 90 s ago
+  assert.equal(uptimeSeconds(5e6, 6e6), 1); // started right after boot
+  assert.equal(uptimeSeconds(0, 1_090e6), null); // systemd reports 0 = never started
   const now = monotonicNowUs();
-  // A site started 90 s ago, even when the machine (container) itself booted only 10 s ago.
-  assert.equal(Math.round(uptimeSeconds(now - 90e6, now)), 90);
-  assert.equal(uptimeSeconds(0, now), null);
-  assert.ok(monotonicNowUs() >= now);
+  assert.ok(Number.isFinite(now) && now > 0 && monotonicNowUs() >= now);
 });
 
 test('private address detection', () => {
