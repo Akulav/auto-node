@@ -1,6 +1,6 @@
 {
   "name": "autonode",
-  "version": "1.0.3",
+  "version": "1.1.1",
   "description": "A beautiful, simple control panel for hosting Node.js websites on your own Linux machine.",
   "type": "module",
   "bin": {

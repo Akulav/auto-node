@@ -142,7 +142,8 @@ export async function unzip(name, rel) {
   fs.rmSync(full, { force: true });
   // If the zip contained a single top-level folder with a package.json, flatten it.
   const entries = fs.readdirSync(dest);
-  if (entries.length === 1 && fs.statSync(path.join(dest, entries[0])).isDirectory() && fs.existsSync(path.join(dest, entries[0], 'package.json'))) {
+  // lstat, not stat: a symlink to another folder (another site, /opt/autonode…) must never be "flattened" by root.
+  if (entries.length === 1 && fs.lstatSync(path.join(dest, entries[0])).isDirectory() && fs.existsSync(path.join(dest, entries[0], 'package.json'))) {
     const inner = path.join(dest, entries[0]);
     for (const e of fs.readdirSync(inner)) fs.renameSync(path.join(inner, e), path.join(dest, e));
     fs.rmdirSync(inner);

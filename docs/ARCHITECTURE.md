@@ -41,6 +41,7 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/files.js` | Path-confined file operations, unzip, placing finished uploads |
 | `src/uploads.js` | Chunked, resumable uploads (idempotent pieces at byte offsets, free-space check, stale cleanup) |
 | `src/deploy.js` | Git connect/check/deploy, auto-update loop, webhook verification, workflow generator |
+| `src/locks.js` | Locked files: patterns that GitHub updates never modify or delete |
 | `src/network.js` | Interface info, static IP via `nmcli` or netplan |
 | `src/selfupdate.js` | Update AutoNode from its own git checkout |
 | `src/backup.js` | Export (JSON manifest or `.tar.gz` with site files) and restore with clash resolution |
@@ -63,7 +64,12 @@ The start command is auto-detected unless set: `npm start` if `package.json` has
 `deploy(name)` runs as the `autonode` user:
 
 1. `git init` + `remote add` (first time) — works even if the folder already has files
-2. `git fetch --depth 50 origin <branch>` and `git reset --hard FETCH_HEAD` (untracked files such as `.env` are kept)
+2. `git fetch --depth 50 origin <branch>`, then the **update safety check** (`planUpdate()`), then `git reset --hard FETCH_HEAD`:
+   - Untracked files (made by the website, not in the repo) are untouched by `reset` and never block.
+   - A tracked file modified on the server that the new commit deletes is copied aside and restored (it becomes untracked).
+   - A tracked file modified on the server that the new commit still has, or an untracked file at a path the new commit adds, is a **conflict** (unless the content is identical or a lock covers it). Conflicts pause the deploy, store `git.blocked`, and stop auto-updates until the user picks `resolve: "keep"` (keep + lock) or `"overwrite"`.
+   - Files matched by the site's **locks** (`src/locks.js`: exact paths, `folder/`, globs) are always copied aside and restored.
+   - Every kept/overwritten file is first copied to `/var/lib/autonode/rescued/<site>/<timestamp>-kept|overwritten/`.
 3. Install: `npm ci` (lockfile) / `npm install`, or pnpm/yarn if their lockfile and binary exist, or the custom command
 4. Build: `npm run build` if a build script exists, or the custom command
 5. Restart the service
@@ -74,6 +80,9 @@ Triggers: the dashboard button, the auto-update loop (polls every N minutes), an
 
 ## Security model
 
+- Websites can't use the dashboard or proxy ports, and the proxy never forwards to them: proxied traffic arrives from 127.0.0.1 and would otherwise pass the LAN check below.
+- The proxy only believes `CF-Connecting-IP` / `X-Forwarded-*` from Cloudflare's IP ranges or loopback (Tunnel); otherwise it replaces them with the real peer address.
+- Root never follows symlinks when copying website files during updates (`plainFile()`, `O_NOFOLLOW`), and `chown -R -h` doesn't either.
 - The dashboard rejects any client outside private ranges (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`, loopback, IPv6 ULA/link-local) unless `dashboard.allowPublic` is set.
 - First-run password creation requires the setup code printed by the installer.
 - Passwords use scrypt; sessions are HMAC-signed cookies (`HttpOnly`, `SameSite=Strict`); changing the password rotates the signing secret.

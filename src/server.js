@@ -16,6 +16,7 @@ import * as selfupdate from './selfupdate.js';
 import * as proxy from './proxy.js';
 import * as backup from './backup.js';
 import * as uploads from './uploads.js';
+import * as locks from './locks.js';
 import crypto from 'node:crypto';
 import { runner, runnerKind, restoreChildren, stopAllChildren } from './runner.js';
 import { HttpError, readJson, readBody, sendJson, normalizeHostname } from './util.js';
@@ -259,6 +260,8 @@ on('GET', '/api/sites/:name/git', async (req, res, p) => {
     webhookSecret: s.git.webhookSecret,
     workflow: deploy.workflowYaml(s, hookBase(s)),
     job: deploy.jobStatus(s.name),
+    blocked: s.git.blocked || null,
+    locks: s.locks || [],
   };
 });
 on('PUT', '/api/sites/:name/git', async (req, res, p, body) => {
@@ -268,7 +271,16 @@ on('PUT', '/api/sites/:name/git', async (req, res, p, body) => {
 on('DELETE', '/api/sites/:name/git', async (req, res, p) => (deploy.disconnectRepo(p.name), { ok: true }));
 on('POST', '/api/sites/:name/git/check', async (req, res, p) => deploy.checkForUpdates(p.name));
 on('POST', '/api/sites/:name/git/rotate', async (req, res, p) => (deploy.rotateSecret(p.name), { ok: true }));
-on('POST', '/api/sites/:name/deploy', async (req, res, p) => deploy.deploy(p.name, { reason: 'manual' }));
+on('POST', '/api/sites/:name/deploy', async (req, res, p, body) => {
+  const resolve = ['keep', 'overwrite'].includes(body.resolve) ? body.resolve : null;
+  return deploy.deploy(p.name, { reason: resolve ? `manual (${resolve === 'keep' ? 'keep server files' : 'use GitHub files'})` : 'manual', resolve });
+});
+
+// Locked files: never modified or deleted by GitHub updates.
+on('GET', '/api/sites/:name/locks', async (req, res, p) => ({ locks: locks.getLocks(p.name) }));
+on('PUT', '/api/sites/:name/locks', async (req, res, p, body) => ({ locks: locks.setLocks(p.name, body.locks) }));
+on('POST', '/api/sites/:name/locks', async (req, res, p, body) => ({ locks: locks.addLocks(p.name, body.lock) }));
+on('DELETE', '/api/sites/:name/locks', async (req, res, p) => ({ locks: locks.removeLock(p.name, q(req).get('lock')) }));
 on('GET', '/api/sites/:name/deploy', async (req, res, p) => deploy.jobStatus(sites.getSite(p.name).name));
 
 /* ------------------------------------------------------ certs & cloudflare */
@@ -392,7 +404,7 @@ function serveStatic(req, res, url) {
   if (!file.startsWith(PUBLIC)) return sendJson(res, 400, { error: 'bad path' });
   fs.readFile(file, (err, data) => {
     if (err) return sendJson(res, 404, { error: 'Not found' });
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': rel === '/index.html' ? 'no-cache' : 'public, max-age=300' });
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' }); // revalidate: a self-update must never leave a stale UI behind
     res.end(data);
   });
 }

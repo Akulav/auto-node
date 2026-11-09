@@ -74,7 +74,11 @@ Paths are relative to the website folder and always start with `/`.
 | DELETE | `/api/sites/:name/git` | |
 | POST | `/api/sites/:name/git/check` | `{ upToDate, behind, commits, current }` |
 | POST | `/api/sites/:name/git/rotate` | New webhook secret |
-| POST | `/api/sites/:name/deploy` | Starts a deploy |
+| POST | `/api/sites/:name/deploy` | `{ resolve?: "keep" \| "overwrite" }`: starts a deploy. If the update would overwrite website data, the job ends with `ok: false` ("Update paused…") and `GET …/git` returns `blocked: { files: [{ path, reason: "changed" \| "created" }] }`; deploy again with `resolve` to continue. |
+| GET | `/api/sites/:name/locks` | `{ locks }` |
+| PUT | `/api/sites/:name/locks` | `{ locks: [...] }`: replace the list |
+| POST | `/api/sites/:name/locks` | `{ lock }`: e.g. `db.sqlite`, `data/`, `*.sqlite`, `storage/**.json` |
+| DELETE | `/api/sites/:name/locks?lock=` | |
 | GET | `/api/sites/:name/deploy` | `{ running, log, ok, error }` |
 
 ### Deploy webhook (public)

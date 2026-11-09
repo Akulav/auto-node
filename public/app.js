@@ -54,6 +54,7 @@ const ICONS = {
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
   warn: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
   lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
   github: '<path fill="currentColor" stroke="none" d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.4 1.1 2.9.8.1-.6.4-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-5a3.9 3.9 0 0 1 1-2.7c-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7a3.9 3.9 0 0 1 1 2.7c0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9V21c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/>',
   terminal: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/>',
   bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
@@ -339,6 +340,106 @@ const statusPill = (st) => {
   const [label, cls] = STATE_LABEL[st?.state] || STATE_LABEL.stopped;
   return h('span', { class: `pill ${cls}` }, h('span', { class: 'dot' }), label);
 };
+
+/* ------------------------------------------------------ locked files */
+
+/** Same rules as src/locks.js: "file", "folder/", "*.ext" (any depth), "dir/**.json" (from root). */
+function lockMatcher(locks = []) {
+  const glob = (g) => {
+    let re = '';
+    for (let i = 0; i < g.length; i++) {
+      const ch = g[i];
+      if (ch === '*' && g[i + 1] === '*') {
+        re += '.*';
+        i++;
+        if (g[i + 1] === '/') i++;
+      } else if (ch === '*') re += '[^/]*';
+      else if (ch === '?') re += '[^/]';
+      else re += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+    return re;
+  };
+  const tests = locks.map((l) => {
+    if (l.endsWith('/')) return { l, t: (p) => p === l.slice(0, -1) || p.startsWith(l) };
+    if (/[*?]/.test(l)) {
+      const re = new RegExp(`^${l.includes('/') ? '' : '(?:.*/)?'}${glob(l)}(?:/.*)?$`);
+      return { l, t: (p) => re.test(p) };
+    }
+    return { l, t: (p) => p === l || p.startsWith(l + '/') };
+  });
+  /** Returns the lock that covers a site-relative path, or null. */
+  return (p) => tests.find((x) => x.t(String(p).replace(/^\/+/, '')))?.l || null;
+}
+
+/** Editable list of locked files/folders/patterns for a website. */
+function lockEditor(siteName, initial, onChange) {
+  let locks = [...initial];
+  const list = h('div', { class: 'list' });
+  const paint = () => {
+    clear(list);
+    if (!locks.length) list.append(h('div', { class: 'item' }, h('div', { class: 'muted small' }, 'Nothing locked yet.')));
+    for (const l of locks)
+      list.append(
+        h(
+          'div',
+          { class: 'item' },
+          h('span', { style: 'display:flex;color:var(--good)' }, icon('lock')),
+          h('code', { class: 'grow ellipsis' }, l),
+          h('span', { class: 'small muted' }, l.endsWith('/') ? 'Folder' : /[*?]/.test(l) ? 'Pattern' : 'File'),
+          h(
+            'button',
+            {
+              class: 'btn sm',
+              onclick: async (e) =>
+                busy(e.currentTarget, async () => {
+                  locks = (await api('DELETE', `/api/sites/${siteName}/locks?lock=${encodeURIComponent(l)}`)).locks;
+                  paint();
+                  onChange?.(locks);
+                  toast(`Unlocked ${l}`);
+                }),
+            },
+            'Unlock',
+          ),
+        ),
+      );
+  };
+  paint();
+  const input = h('input', { class: 'input mono', placeholder: 'db.sqlite   data/   *.sqlite', autocomplete: 'off', autocapitalize: 'off' });
+  const add = async (value) => {
+    locks = (await api('POST', `/api/sites/${siteName}/locks`, { lock: value })).locks;
+    paint();
+    onChange?.(locks);
+    toast(`Locked ${value} ✓`);
+  };
+  const suggestions = ['*.db', '*.sqlite', '*.sqlite3', '.env', 'data/', 'uploads/', 'storage/'];
+  return h(
+    'div',
+    { class: 'stack' },
+    list,
+    h(
+      'form',
+      {
+        class: 'input-row',
+        onsubmit: async (e) => {
+          e.preventDefault();
+          if (!input.value.trim()) return;
+          await busy(e.target.querySelector('button'), async () => {
+            await add(input.value.trim());
+            input.value = '';
+          });
+        },
+      },
+      input,
+      h('button', { class: 'btn primary' }, icon('lock'), 'Lock'),
+    ),
+    h(
+      'div',
+      { class: 'row wrap', style: 'gap:6px' },
+      h('span', { class: 'small muted' }, 'Common:'),
+      suggestions.map((s) => h('button', { class: 'btn sm', type: 'button', onclick: () => !locks.includes(s) && add(s).catch((err) => toast(err.message, 'bad')) }, s)),
+    ),
+  );
+}
 
 /* ======================================================== components */
 
@@ -762,12 +863,13 @@ async function siteView(name, tab = 'overview') {
   const paintActions = (st) => {
     clear(pillBox).append(statusPill(st));
     const running = st.state === 'running' || st.state === 'starting' || st.state === 'crashed';
-    clear(actions).append(
+    // append() (not Element.append) skips false/undefined, which would otherwise render as text.
+    append(clear(actions), [
       site.hostnames[0] && h('a', { class: 'btn', href: `https://${site.hostnames[0]}`, target: '_blank', rel: 'noopener' }, icon('ext'), 'Visit'),
       h('a', { class: 'btn', href: site.lanUrl, target: '_blank', rel: 'noopener', title: 'Open on your local network' }, icon('ext'), 'Preview'),
       running ? h('button', { class: 'btn', onclick: act('stop', 'Stopped') }, icon('stop'), 'Stop') : h('button', { class: 'btn primary', onclick: act('start', 'Started ✓') }, icon('play'), 'Start'),
       running && h('button', { class: 'btn primary', onclick: act('restart', 'Restarted ✓') }, icon('restart'), 'Restart'),
-    );
+    ]);
   };
   paintActions(site.status);
   let tabLive = null;
@@ -913,6 +1015,27 @@ function siteFiles(site) {
   const zipInput = h('input', { type: 'file', accept: '.zip', class: 'hidden', onchange: (e) => e.target.files[0] && uploadFiles([[e.target.files[0].name, e.target.files[0]]], { unzip: true }) });
   const join = (...p) => ('/' + p.join('/')).replace(/\/+/g, '/');
   const api_ = (p) => `/api/sites/${site.name}${p}`;
+  let locks = site.locks || [];
+  let lockedBy = lockMatcher(locks);
+  let lastEntries = [];
+
+  async function toggleLock(p, e, by) {
+    const rel = p.replace(/^\/+/, '') + (e.type === 'dir' ? '/' : '');
+    try {
+      if (by && by !== rel) {
+        toast(`Locked by the pattern “${by}”. Remove it on the GitHub & Updates tab.`);
+        return;
+      }
+      const r = by ? await api('DELETE', api_(`/locks?lock=${encodeURIComponent(rel)}`)) : await api('POST', api_('/locks'), { lock: rel });
+      locks = r.locks;
+      site.locks = locks;
+      lockedBy = lockMatcher(locks);
+      toast(by ? `Unlocked ${rel}` : `Locked ${rel} — GitHub updates will never change or delete it ✓`);
+      paint(lastEntries);
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  }
 
   async function load(path = cwd) {
     try {
@@ -925,6 +1048,7 @@ function siteFiles(site) {
   }
 
   function paint(entries) {
+    lastEntries = entries;
     const parts = cwd.split('/').filter(Boolean);
     clear(crumbs).append(h('a', { href: '#', onclick: (e) => (e.preventDefault(), load('/')) }, site.name), ...parts.flatMap((p, i) => [h('span', {}, '›'), h('a', { href: '#', onclick: (e) => (e.preventDefault(), load(join(...parts.slice(0, i + 1)))) }, p)]));
     clear(table);
@@ -934,11 +1058,22 @@ function siteFiles(site) {
     for (const e of entries) {
       const p = join(cwd, e.name);
       const open = () => (e.type === 'dir' ? load(p) : openEditor(p));
+      const by = e.heavy ? null : lockedBy(p.replace(/^\/+/, '') + (e.type === 'dir' ? '/' : ''));
       table.append(
         h(
           'tr',
           { class: e.heavy ? 'dim' : '' },
-          h('td', {}, h('div', { class: 'name', onclick: open, title: e.name }, e.type === 'dir' ? h('span', { style: 'color:#5ac8fa;display:flex' }, icon('folder')) : h('span', { class: 'muted', style: 'display:flex' }, icon(e.name.endsWith('.zip') ? 'zip' : 'file')), h('span', {}, e.name))),
+          h(
+            'td',
+            {},
+            h(
+              'div',
+              { class: 'name', onclick: open, title: e.name },
+              e.type === 'dir' ? h('span', { style: 'color:#5ac8fa;display:flex' }, icon('folder')) : h('span', { class: 'muted', style: 'display:flex' }, icon(e.name.endsWith('.zip') ? 'zip' : 'file')),
+              h('span', {}, e.name),
+              by && h('span', { class: 'pill good', title: `Locked by “${by}”: GitHub updates never change or delete it` }, icon('lock'), 'Locked'),
+            ),
+          ),
           h('td', { class: 'meta' }, e.type === 'dir' ? '—' : fmtBytes(e.size)),
           h('td', { class: 'meta opt' }, e.mtime ? fmtAgo(e.mtime) : ''),
           h(
@@ -946,6 +1081,7 @@ function siteFiles(site) {
             { class: 'acts' },
             e.name.endsWith('.zip') && h('button', { class: 'btn sm', title: 'Extract here', onclick: () => doUnzip(p) }, 'Unzip'),
             e.type === 'file' && h('a', { class: 'btn icon ghost', title: 'Download', href: api_(`/file?download=1&path=${encodeURIComponent(p)}`) }, icon('download')),
+            !e.heavy && h('button', { class: 'btn icon ghost', title: by ? 'Unlock (allow GitHub updates to change it)' : 'Lock (GitHub updates will never change or delete it)', style: by ? 'color:var(--good)' : '', onclick: () => toggleLock(p, e, by) }, icon(by ? 'lock' : 'unlock')),
             h('button', { class: 'btn icon ghost', title: 'Rename', onclick: () => doRename(p, e.name) }, icon('edit')),
             h('button', { class: 'btn icon ghost', title: 'Delete', style: 'color:var(--bad)', onclick: () => doDelete(p, e) }, icon('trash')),
           ),
@@ -1358,12 +1494,50 @@ async function siteGithub(site) {
             ),
       );
     });
-  const deployNow = async (e) =>
+  const deployNow = async (e, resolve) =>
     busy(e.currentTarget, async () => {
-      await api('POST', `/api/sites/${site.name}/deploy`);
+      await api('POST', `/api/sites/${site.name}/deploy`, resolve ? { resolve } : {});
       clear(updatesBox);
+      clear(blockedBox);
       watchDeploy(site.name, deployBox, () => render());
     });
+
+  // An update that was stopped because it would overwrite website data.
+  const blockedBox = h('div');
+  if (g.blocked?.files?.length) {
+    const files = g.blocked.files;
+    append(blockedBox, [
+      h(
+        'div',
+        { class: 'card pad-lg', style: 'border-color:var(--warn)' },
+        h('div', { class: 'row', style: 'gap:12px;margin-bottom:10px' }, h('span', { class: 'pill warn' }, icon('warn'), 'Update paused'), h('h3', {}, 'This update would overwrite data your website saved')),
+        h('p', { class: 'muted' }, `Nothing was changed. Automatic updates are paused until you choose. Files your website created that aren't in the repository are always kept — these ${files.length === 1 ? 'is' : 'are'} the ${files.length === 1 ? 'one' : files.length} that would be replaced:`),
+        h(
+          'div',
+          { class: 'list', style: 'margin:14px 0;box-shadow:none' },
+          files.map((f) => h('div', { class: 'item' }, h('code', { class: 'grow ellipsis' }, f.path), h('span', { class: 'small muted' }, f.reason === 'changed' ? 'Changed on the server' : 'Created by the website'))),
+        ),
+        h(
+          'div',
+          { class: 'row wrap' },
+          h('button', { class: 'btn primary', onclick: (e) => deployNow(e, 'keep') }, icon('lock'), 'Keep Server Versions & Update'),
+          h(
+            'button',
+            {
+              class: 'btn danger',
+              onclick: async (e) => {
+                const btn = e.currentTarget;
+                if (!(await confirmSheet({ title: 'Use the GitHub versions?', text: `${files.map((f) => f.path).join(', ')} will be replaced with the version from GitHub. A copy of the current files is saved first, in /var/lib/autonode/rescued/${site.name}.`, ok: 'Replace Files', danger: true }))) return;
+                deployNow({ currentTarget: btn }, 'overwrite');
+              },
+            },
+            'Use GitHub Versions',
+          ),
+        ),
+        h('p', { class: 'small muted', style: 'margin-top:12px' }, '“Keep server versions” also locks these files, so future updates leave them alone automatically.'),
+      ),
+    ]);
+  }
 
   append(wrap, [
     h(
@@ -1377,8 +1551,9 @@ async function siteGithub(site) {
         h('button', { class: 'btn', onclick: check }, icon('restart'), 'Check for Updates'),
         h('button', { class: 'btn primary', onclick: deployNow }, icon('download'), 'Deploy Now'),
       ),
-      ld && h('div', { style: 'margin-top:16px' }, ld.ok ? notice('good', h('b', {}, 'Last deploy succeeded '), fmtAgo(ld.at), ld.commit ? ` · ${ld.commit.hash} “${ld.commit.subject}”` : '') : notice('bad', h('b', {}, 'Last deploy failed '), fmtAgo(ld.at), ' — ', ld.error || '')),
+      ld && !g.blocked && h('div', { style: 'margin-top:16px' }, ld.ok ? notice('good', h('b', {}, 'Last deploy succeeded '), fmtAgo(ld.at), ld.commit ? ` · ${ld.commit.hash} “${ld.commit.subject}”` : '') : notice('bad', h('b', {}, 'Last deploy failed '), fmtAgo(ld.at), ' — ', ld.error || '')),
     ),
+    blockedBox,
     updatesBox,
     deployBox,
     h(
@@ -1406,6 +1581,13 @@ async function siteGithub(site) {
           toast(v ? 'Automatic updates on' : 'Automatic updates off');
         }, 'Automatic updates'),
       ),
+    ),
+    h(
+      'div',
+      { class: 'section', style: 'margin-top:12px' },
+      h('h2', {}, 'Locked files'),
+      h('p', { class: 'muted', style: 'margin:4px 0 16px' }, 'Updates from GitHub never change or delete locked files — perfect for databases, uploads and .env. You can also lock items from the Files tab.'),
+      lockEditor(site.name, g.locks || []),
     ),
     h(
       'div',

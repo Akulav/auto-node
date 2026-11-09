@@ -28,6 +28,7 @@ Made with ♥ by **Akulav**
 | **Many domains, one PC** | Host as many domains as you like side by side — `akulav.com`, `another-site.dev`, `shop.example.org` — each website can have several domains and subdomains, and every domain gets its own certificate. |
 | **HTTPS** | Paste a Cloudflare Origin Certificate, or let AutoNode create one automatically. Built-in reverse proxy with SNI, WebSockets and HTTP → HTTPS redirects. |
 | **GitHub deploys** | Connect a repo (public or private), check for new commits, deploy with one click, auto-update on a schedule, or deploy instantly via webhook or a ready-made GitHub Actions workflow. |
+| **Safe updates** | Updates never silently overwrite data your website saved. Files your site creates are always kept; if an update would replace a file the site changed, it pauses and asks. Lock files, folders or patterns (`db.sqlite`, `data/`, `*.sqlite`) so updates never touch them. |
 | **Network** | See your IP, router and DNS. Switch to a fixed (static) IP from the dashboard — NetworkManager and netplan supported. |
 | **Backup & restore** | Export all settings (websites, domains, env vars, certificates, Cloudflare) as one `.json`, or everything including website files as a `.tar.gz`. Import on any machine to restore or migrate — with a preview before anything changes. |
 | **Self-updating** | AutoNode checks its own repository and updates itself (optionally automatically). |

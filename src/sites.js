@@ -27,8 +27,18 @@ function portFree(port) {
   });
 }
 
+/**
+ * Ports a website must never use. The public proxy forwards internet traffic to a
+ * site's port from 127.0.0.1, so a site on the dashboard port would put the
+ * LAN-only dashboard on the internet (and on the proxy's own ports, a loop).
+ */
+export function reservedPorts() {
+  const c = config.get();
+  return new Set([c.dashboard.port, c.proxy.httpPort, c.proxy.httpsPort]);
+}
+
 async function nextPort() {
-  const used = new Set(allSites().map((s) => s.port));
+  const used = new Set([...allSites().map((s) => s.port), ...reservedPorts()]);
   for (let p = 3001; p < 3999; p++) if (!used.has(p) && (await portFree(p))) return p;
   throw new HttpError(500, 'No free port available.');
 }
@@ -36,7 +46,8 @@ async function nextPort() {
 /** Hand files to the unprivileged site user. */
 export async function fixOwnership(target) {
   if (config.DEV || !isLinux) return;
-  await run('chown', ['-R', `${config.SITE_USER}:${config.SITE_USER}`, target], { quiet: true });
+  // -h: change symlinks themselves, never what they point to (we run as root).
+  await run('chown', ['-R', '-h', `${config.SITE_USER}:${config.SITE_USER}`, target], { quiet: true });
 }
 
 /** Figure out how to start a site when the user didn't specify. */
@@ -139,6 +150,7 @@ export async function updateSite(name, patch) {
   if (patch.port != null) {
     const p = Number(patch.port);
     if (!Number.isInteger(p) || p < 1024 || p > 65535) throw new HttpError(400, 'Port must be between 1024 and 65535.');
+    if (reservedPorts().has(p)) throw new HttpError(400, `Port ${p} is used by AutoNode itself. Pick another one.`);
     if (allSites().some((s) => s.name !== name && s.port === p)) throw new HttpError(409, 'Another website already uses that port.');
     next.port = p;
   }
@@ -209,7 +221,9 @@ export async function deleteSite(name) {
 export async function runInSite(name, command, onData) {
   const ids = await siteUser();
   const site = getSite(name);
-  const env = { ...process.env, ...siteEnv(site), NODE_ENV: 'development', npm_config_cache: path.join(config.paths.homeDir, '.npm') };
+  // Don't hand the root daemon's own environment to website build commands.
+  const base = config.DEV ? process.env : { LANG: process.env.LANG || 'C.UTF-8' };
+  const env = { ...base, ...siteEnv(site), NODE_ENV: 'development', npm_config_cache: path.join(config.paths.homeDir, '.npm') };
   if (config.DEV) env.PATH = process.env.PATH;
   onData?.(`$ ${command}\n`);
   const r = await run(command, [], { cwd: siteDir(name), env, shell: config.DEV ? true : '/bin/sh', uid: ids?.uid, gid: ids?.gid, onData, timeout: 30 * 60_000 });

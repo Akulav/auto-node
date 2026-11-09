@@ -8,7 +8,7 @@ import https from 'node:https';
 import net from 'node:net';
 import * as config from './config.js';
 import * as certs from './certs.js';
-import { allSites } from './sites.js';
+import { allSites, reservedPorts } from './sites.js';
 
 let httpServer = null;
 let httpsServer = null;
@@ -23,8 +23,12 @@ function hostOf(req) {
     .toLowerCase();
 }
 
+export { route as routeFor };
 function route(host) {
-  return allSites().find((s) => s.hostnames.includes(host)) || null;
+  const site = allSites().find((s) => s.hostnames.includes(host)) || null;
+  // Never forward the internet to AutoNode's own ports (dashboard, or a loop to the proxy).
+  if (site && reservedPorts().has(site.port)) return null;
+  return site;
 }
 
 function page(res, status, title, text) {
@@ -36,15 +40,41 @@ function page(res, status, title, text) {
   res.end(body);
 }
 
-function forwardHeaders(req, secure) {
+// Cloudflare's published edge ranges (https://www.cloudflare.com/ips/).
+const CLOUDFLARE_V4 = ['173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'];
+const CLOUDFLARE_V6 = ['2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32', '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32'];
+const trusted = new net.BlockList();
+for (const c of CLOUDFLARE_V4) trusted.addSubnet(c.split('/')[0], Number(c.split('/')[1]), 'ipv4');
+for (const c of CLOUDFLARE_V6) trusted.addSubnet(c.split('/')[0], Number(c.split('/')[1]), 'ipv6');
+trusted.addSubnet('127.0.0.0', 8, 'ipv4'); // cloudflared (Tunnel) on this machine
+trusted.addAddress('::1', 'ipv6');
+
+/** Is this connection from Cloudflare (or a local tunnel), so its CF-/X-Forwarded headers can be believed? */
+export function isTrustedProxy(addr = '') {
+  const a = addr.replace(/^::ffff:/, '');
+  try {
+    return trusted.check(a, a.includes(':') ? 'ipv6' : 'ipv4');
+  } catch {
+    return false;
+  }
+}
+
+export function forwardHeaders(req, secure) {
   const h = {};
   for (const [k, v] of Object.entries(req.headers)) if (!HOP.includes(k)) h[k] = v;
   const ip = req.socket.remoteAddress?.replace(/^::ffff:/, '') || '';
-  h['x-forwarded-for'] = req.headers['x-forwarded-for'] ? `${req.headers['x-forwarded-for']}, ${ip}` : ip;
-  h['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || (secure ? 'https' : 'http');
+  if (isTrustedProxy(ip)) {
+    h['x-forwarded-for'] = req.headers['x-forwarded-for'] ? `${req.headers['x-forwarded-for']}, ${ip}` : ip;
+    h['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || (secure ? 'https' : 'http');
+    h['x-real-ip'] = req.headers['cf-connecting-ip'] || ip;
+  } else {
+    // Someone connected straight to this computer: never pass on claims about who they are.
+    for (const k of ['cf-connecting-ip', 'true-client-ip', 'cf-ipcountry', 'cf-visitor', 'cf-ray', 'x-real-ip', 'forwarded']) delete h[k];
+    h['x-forwarded-for'] = ip;
+    h['x-forwarded-proto'] = secure ? 'https' : 'http';
+    h['x-real-ip'] = ip;
+  }
   h['x-forwarded-host'] = req.headers.host || '';
-  if (req.headers['cf-connecting-ip']) h['x-real-ip'] = req.headers['cf-connecting-ip'];
-  else h['x-real-ip'] = ip;
   return h;
 }
 
@@ -61,7 +91,8 @@ function handle(secure) {
     }
     const site = route(host);
     if (!site) return page(res, 404, 'Nothing here yet', `<b>${host.replace(/[<>&"]/g, '')}</b> isn't connected to a website.`);
-    if (!secure && config.get().proxy.redirectHttps && certs.hasCertFor(host) && !req.headers['cf-visitor']?.includes('https')) {
+    const viaHttps = isTrustedProxy(req.socket.remoteAddress) && String(req.headers['cf-visitor'] || '').includes('https');
+    if (!secure && config.get().proxy.redirectHttps && certs.hasCertFor(host) && !viaHttps) {
       const port = config.get().proxy.httpsPort;
       res.writeHead(301, { Location: `https://${host}${port === 443 ? '' : ':' + port}${req.url}` });
       return res.end();
@@ -75,7 +106,7 @@ function handle(secure) {
         upRes.pipe(res);
       },
     );
-    up.setTimeout(120_000, () => up.destroy(new Error('timeout')));
+    up.setTimeout(10 * 60_000, () => up.destroy(new Error('timeout'))); // idle time; slow reports/exports need more than 2 min
     up.on('error', () => {
       if (!res.headersSent) page(res, 502, 'Starting up…', 'This website is not responding right now. If you own it, check that it is running in AutoNode.');
       else res.destroy();
@@ -120,23 +151,43 @@ function listen(server, port, key) {
   });
 }
 
+/** Public ports: a synchronous throw in a handler would otherwise crash the whole daemon. */
+const guard = (fn) => (req, resOrSocket, head) => {
+  try {
+    return fn(req, resOrSocket, head);
+  } catch (err) {
+    console.error('[proxy]', err);
+    if (typeof resOrSocket.writeHead === 'function' && !resOrSocket.headersSent) page(resOrSocket, 500, 'Something went wrong', 'Please try again.');
+    else resOrSocket.destroy();
+  }
+};
+
+function tune(server) {
+  // Node's default 5-minute request limit cut off large uploads to websites.
+  server.requestTimeout = 60 * 60_000;
+  server.headersTimeout = 60_000; // still guards against slow-header (slowloris) clients
+  return server;
+}
+
 export async function start(onHook) {
   hookHandler = onHook;
   const { httpPort, httpsPort } = config.get().proxy;
-  httpServer = http.createServer(handle(false));
-  httpServer.on('upgrade', handleUpgrade(false));
+  httpServer = tune(http.createServer(guard(handle(false))));
+  httpServer.on('upgrade', guard(handleUpgrade(false)));
   await listen(httpServer, httpPort, 'http');
 
-  httpsServer = https.createServer(
-    {
-      SNICallback: (name, cb) => {
-        const ctx = certs.contextFor(name);
-        cb(ctx ? null : new Error('no certificate'), ctx || undefined);
+  httpsServer = tune(
+    https.createServer(
+      {
+        SNICallback: (name, cb) => {
+          const ctx = certs.contextFor(name);
+          cb(ctx ? null : new Error('no certificate'), ctx || undefined);
+        },
       },
-    },
-    handle(true),
+      guard(handle(true)),
+    ),
   );
-  httpsServer.on('upgrade', handleUpgrade(true));
+  httpsServer.on('upgrade', guard(handleUpgrade(true)));
   httpsServer.on('tlsClientError', () => {});
   await listen(httpsServer, httpsPort, 'https');
 }

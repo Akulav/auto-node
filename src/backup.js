@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process';
 import * as config from './config.js';
 import * as certs from './certs.js';
 import { runner } from './runner.js';
-import { siteDir, fixOwnership, allSites, startSite } from './sites.js';
+import { siteDir, fixOwnership, allSites, startSite, reservedPorts } from './sites.js';
 import { deploy } from './deploy.js';
 import { HttpError, SITE_NAME_RE, run, which } from './util.js';
 
@@ -169,8 +169,9 @@ export async function restore(file, { settings = true, startSites = true } = {})
       // Resolve port and hostname clashes with websites that stay.
       const others = allSites().filter((x) => x.name !== s.name);
       const site = { ...s, hostnames: [...(s.hostnames || [])], env: { ...(s.env || {}) } };
-      if (others.some((o) => o.port === site.port)) {
-        const used = new Set([...others.map((o) => o.port), ...incoming.map((i) => i.port)]);
+      const reserved = reservedPorts();
+      if (others.some((o) => o.port === site.port) || reserved.has(site.port)) {
+        const used = new Set([...others.map((o) => o.port), ...incoming.map((i) => i.port), ...reserved]);
         let p = 3001;
         while (used.has(p)) p++;
         report.warnings.push(`${site.name}: port ${site.port} was taken, now uses ${p}.`);
