@@ -26,10 +26,10 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
 /* ------------------------------------------------------------------ router */
 
 const routes = [];
-const on = (method, pattern, handler, { open = false } = {}) => {
+const on = (method, pattern, handler, { open = false, raw = false } = {}) => {
   const keys = [];
   const re = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, k) => (keys.push(k), '([^/]+)')) + '/?$');
-  routes.push({ method, re, keys, handler, open });
+  routes.push({ method, re, keys, handler, open, raw });
 };
 
 function lanAddress() {
@@ -63,8 +63,7 @@ on('GET', '/api/session', async (req) => ({
 
 on('POST', '/api/setup', async (req, res, p, body) => {
   if (auth.isSetUp()) throw new HttpError(409, 'A password is already set.');
-  const code = String(body.code || '').trim().toUpperCase();
-  if (!config.DEV && code !== config.get().auth.setupCode) throw new HttpError(403, 'That setup code is not right. Run "sudo autonode setup-code" on the server to see it.');
+  if (!config.DEV && !auth.checkSetupCode(body.code, req.socket.remoteAddress)) throw new HttpError(403, 'That setup code is not right. Run "sudo autonode setup-code" on the server to see it.');
   await auth.setPassword(body.password);
   res.setHeader('Set-Cookie', auth.createSessionCookie(false));
   return { ok: true };
@@ -201,7 +200,9 @@ on('GET', '/api/sites/:name/file', async (req, res, p) => {
   const rel = q(req).get('path');
   if (q(req).get('download')) {
     const { stream, size, filename } = files.downloadStream(p.name, rel);
-    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': size, 'Content-Disposition': `attachment; filename="${filename.replace(/"/g, '')}"` });
+    // Plain ASCII fallback plus the UTF-8 name; raw non-ASCII in a header makes Node throw.
+    const ascii = filename.replace(/[^\x20-\x7e]|["\\]/g, '_');
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': size, 'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}` });
     stream.pipe(res);
     return undefined;
   }
@@ -215,7 +216,7 @@ on('PUT', '/api/sites/:name/file', async (req, res, p) => {
 on('PUT', '/api/sites/:name/upload', async (req, res, p) => (await files.upload(p.name, q(req).get('path'), req), { ok: true }), { raw: true });
 // Chunked, resumable uploads (used for website files and backups).
 on('GET', '/api/chunk', async (req) => uploads.received(q(req).get('id')));
-on('PUT', '/api/chunk', async (req) => uploads.writeChunk(q(req).get('id'), q(req).get('offset'), q(req).get('total'), req));
+on('PUT', '/api/chunk', async (req) => uploads.writeChunk(q(req).get('id'), q(req).get('offset'), q(req).get('total'), req), { raw: true });
 on('DELETE', '/api/chunk', async (req) => (uploads.discard(q(req).get('id')), { ok: true }));
 on('POST', '/api/sites/:name/upload-complete', async (req, res, p, body) => {
   sites.getSite(p.name);
@@ -351,7 +352,7 @@ on('PUT', '/api/backup/upload', async (req) => {
     fs.rmSync(file, { force: true });
     throw err;
   }
-});
+}, { raw: true });
 on('POST', '/api/backup/upload-complete', async (req, res, p, body) => {
   const tmp = uploads.take(body.id, body.total);
   const file = path.join(config.paths.tmpDir, `upload-${body.id}.bin`);
@@ -379,8 +380,13 @@ on('POST', '/api/update', async () => selfupdate.apply());
 
 /* ----------------------------------------------------------------- server */
 
-function serveStatic(req, res) {
-  let rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+function serveStatic(req, res, url) {
+  let rel;
+  try {
+    rel = decodeURIComponent(url.pathname);
+  } catch {
+    return sendJson(res, 400, { error: 'bad path' });
+  }
   if (rel === '/' || !path.extname(rel)) rel = '/index.html';
   const file = path.join(PUBLIC, path.normalize(rel));
   if (!file.startsWith(PUBLIC)) return sendJson(res, 400, { error: 'bad path' });
@@ -403,9 +409,14 @@ async function handler(req, res) {
     return res.end('AutoNode is only available on your local network.');
   }
 
-  const url = new URL(req.url, 'http://x');
+  let url;
+  try {
+    url = new URL(req.url, 'http://x');
+  } catch {
+    return sendJson(res, 400, { error: 'Bad request' }); // e.g. "GET //"
+  }
   if (url.pathname.startsWith('/.autonode/deploy/')) return deploy.handleHook(req, res);
-  if (!url.pathname.startsWith('/api/')) return serveStatic(req, res);
+  if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url);
 
   // CSRF: mutating requests must come from this page.
   if (req.method !== 'GET' && req.headers.origin) {
@@ -417,11 +428,19 @@ async function handler(req, res) {
     if (r.method !== req.method) continue;
     const m = r.re.exec(url.pathname);
     if (!m) continue;
-    const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
     try {
+      const params = Object.fromEntries(
+        r.keys.map((k, i) => {
+          try {
+            return [k, decodeURIComponent(m[i + 1])];
+          } catch {
+            throw new HttpError(400, 'Invalid address.');
+          }
+        }),
+      );
       if (!r.open && !auth.isAuthenticated(req)) throw new HttpError(401, 'Please sign in.');
-      const isRaw = req.method === 'PUT' && /\/(upload|file|chunk)$/.test(url.pathname); // streamed bodies (files, backups)
-      const body = req.method === 'GET' || req.method === 'DELETE' || isRaw ? {} : await readJson(req, 2 * 1024 * 1024);
+      // Raw routes stream their own body (files, chunks, backups).
+      const body = req.method === 'GET' || req.method === 'DELETE' || r.raw ? {} : await readJson(req, 2 * 1024 * 1024);
       const out = await r.handler(req, res, params, body);
       if (out !== undefined && !res.headersSent) sendJson(res, 200, out);
     } catch (err) {
@@ -446,7 +465,14 @@ export async function serve() {
   selfupdate.startAutoCheck();
 
   const { port, host } = config.get().dashboard;
-  const server = http.createServer(handler);
+  // A rejected handler would be an unhandled rejection, which kills the whole daemon.
+  const server = http.createServer((req, res) =>
+    handler(req, res).catch((err) => {
+      console.error('[dashboard]', err);
+      if (!res.headersSent) sendJson(res, 500, { error: 'Something went wrong' });
+      else res.destroy();
+    }),
+  );
   server.requestTimeout = 0; // uploads & SSE
   server.headersTimeout = 60_000;
   await new Promise((resolve, reject) => {

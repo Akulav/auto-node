@@ -113,6 +113,8 @@ export async function apply(input) {
   if (!cur.supported) throw new HttpError(400, "This system's network can't be configured automatically.");
   const iface = input.interface || cur.interface;
   if (!iface) throw new HttpError(400, 'No network interface found.');
+  // The name goes into the netplan YAML, so only accept interfaces that really exist.
+  if (!cur.interfaces.some((i) => i.name === iface)) throw new HttpError(400, `There is no network interface called "${iface}".`);
   const mode = input.mode === 'static' ? 'static' : 'dhcp';
   let cfg = null;
   if (mode === 'static') {

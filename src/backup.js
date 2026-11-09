@@ -74,7 +74,14 @@ export async function streamFullExport(out) {
 
 function validateManifest(m) {
   if (!m || m.format !== FORMAT || !m.config || typeof m.config !== 'object') throw new HttpError(400, "That file isn't an AutoNode backup.");
-  for (const name of Object.keys(m.config.sites || {})) if (!SITE_NAME_RE.test(name)) throw new HttpError(400, `Backup contains an invalid website name: ${name}`);
+  const sites = m.config.sites;
+  if (sites != null && (typeof sites !== 'object' || Array.isArray(sites))) throw new HttpError(400, "That file isn't an AutoNode backup.");
+  // restore() uses s.name for folder paths (deleted and replaced as root), so it must match the validated key.
+  for (const [name, s] of Object.entries(sites || {})) {
+    if (!SITE_NAME_RE.test(name) || !s || s.name !== name) throw new HttpError(400, `Backup contains an invalid website name: ${name}`);
+    if (!Number.isInteger(s.port) || s.port < 1024 || s.port > 65535) throw new HttpError(400, `Backup has an invalid port for ${name}.`);
+    if (s.hostnames != null && !Array.isArray(s.hostnames)) throw new HttpError(400, `Backup has invalid domains for ${name}.`);
+  }
   return m;
 }
 
@@ -104,7 +111,8 @@ async function open(file) {
   if (head[0] === 0x1f && head[1] === 0x8b) {
     if (!which('tar')) throw new HttpError(500, 'The "tar" program is missing.');
     const dir = fs.mkdtempSync(path.join(config.paths.tmpDir, 'import-'));
-    const r = await run('tar', ['-xzf', file, '-C', dir], { quiet: true, timeout: 30 * 60_000 });
+    // We run as root: don't recreate the archive's owners; fixOwnership() hands files to the site user.
+    const r = await run('tar', ['--no-same-owner', '-xzf', file, '-C', dir], { quiet: true, timeout: 30 * 60_000 });
     if (r.code !== 0) {
       fs.rmSync(dir, { recursive: true, force: true });
       throw new HttpError(400, `Couldn't open the backup: ${r.stderr.trim()}`);

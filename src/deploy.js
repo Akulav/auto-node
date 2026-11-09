@@ -59,7 +59,8 @@ export async function connectRepo(name, { repo, branch, token, autoUpdate, inter
     lastCheck: prev.lastCheck || null,
     behind: prev.behind || 0,
   };
-  if (!/^[\w./-]+$/.test(gitCfg.branch)) throw new HttpError(400, 'Invalid branch name.');
+  // No leading "-": git would read the branch as an option.
+  if (!/^[\w.][\w./-]*$/.test(gitCfg.branch)) throw new HttpError(400, 'Invalid branch name.');
   // Verify access before saving.
   const probe = await run('git', ['ls-remote', '--heads', gitCfg.repo, gitCfg.branch], { env: gitEnv({ git: gitCfg }), timeout: 60_000 });
   if (probe.code !== 0) {
@@ -226,12 +227,16 @@ export function deploy(name, { reason = 'manual', pull = true } = {}) {
 }
 
 function getSafe(name) {
-  return config.get().sites[name] || null;
+  const all = config.get().sites;
+  return Object.hasOwn(all, name) ? all[name] : null;
 }
 
 /** POST /.autonode/deploy/<site> — from GitHub webhooks or GitHub Actions. */
 export async function handleHook(req, res) {
-  const name = decodeURIComponent(req.url.split('?')[0].split('/')[3] || '');
+  let name = '';
+  try {
+    name = decodeURIComponent(req.url.split('?')[0].split('/')[3] || '');
+  } catch {}
   const site = getSafe(name);
   if (req.method !== 'POST' || !site?.git?.webhookSecret) return sendJson(res, 404, { error: 'not found' });
   let body;

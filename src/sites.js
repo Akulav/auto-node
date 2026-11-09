@@ -9,9 +9,10 @@ import { run, HttpError, SITE_NAME_RE, HOSTNAME_RE, ENV_KEY_RE, normalizeHostnam
 export const siteDir = (name) => path.join(config.paths.sitesDir, name);
 
 export function getSite(name) {
-  const s = config.get().sites[name];
-  if (!s) throw new HttpError(404, 'That website does not exist.');
-  return s;
+  // hasOwn: names like "__proto__" or "constructor" must not resolve to Object internals.
+  const all = config.get().sites;
+  if (!Object.hasOwn(all, name)) throw new HttpError(404, 'That website does not exist.');
+  return all[name];
 }
 
 export function allSites() {
@@ -96,6 +97,10 @@ export async function createSite({ name, title, template = 'starter' }) {
 }
 
 function writeStarter(dir, site) {
+  // The title is user text going into HTML inside a JS template literal: escape for both.
+  const title = site.title
+    .replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`)
+    .replace(/[\\`$]/g, (ch) => `\\${ch}`);
   fs.writeFileSync(
     path.join(dir, 'package.json'),
     JSON.stringify({ name: site.name, version: '1.0.0', private: true, type: 'module', scripts: { start: 'node server.js' } }, null, 2) + '\n',
@@ -110,10 +115,10 @@ http
   .createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(\`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${site.title}</title>
+<title>${title}</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;font:17px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;background:#f5f5f7;color:#1d1d1f}
 @media(prefers-color-scheme:dark){body{background:#000;color:#f5f5f7}}h1{font-size:48px;letter-spacing:-.02em;margin:0}p{color:#86868b}</style>
-<main style="text-align:center"><h1>${site.title}</h1><p>Your website is live. Edit <b>server.js</b> in AutoNode to change this page.</p></main>\`);
+<main style="text-align:center"><h1>${title}</h1><p>Your website is live. Edit <b>server.js</b> in AutoNode to change this page.</p></main>\`);
   })
   .listen(port, () => console.log(\`Listening on port \${port}\`));
 `,

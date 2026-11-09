@@ -51,7 +51,14 @@ function forwardHeaders(req, secure) {
 function handle(secure) {
   return (req, res) => {
     const host = hostOf(req);
-    if (req.url.startsWith('/.autonode/deploy/') && hookHandler) return hookHandler(req, res);
+    if (req.url.startsWith('/.autonode/deploy/') && hookHandler) {
+      // Public port: a rejection here must never take the daemon down.
+      return Promise.resolve(hookHandler(req, res)).catch((err) => {
+        console.error('[proxy] deploy hook:', err);
+        if (!res.headersSent) page(res, 500, 'Something went wrong', 'Please try again.');
+        else res.destroy();
+      });
+    }
     const site = route(host);
     if (!site) return page(res, 404, 'Nothing here yet', `<b>${host.replace(/[<>&"]/g, '')}</b> isn't connected to a website.`);
     if (!secure && config.get().proxy.redirectHttps && certs.hasCertFor(host) && !req.headers['cf-visitor']?.includes('https')) {

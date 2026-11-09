@@ -29,17 +29,36 @@ export async function setPassword(password) {
   });
 }
 
-export async function verifyPassword(password, ip) {
+function checkLockout(ip) {
   const f = failures.get(ip);
   if (f && f.until > Date.now()) throw new HttpError(429, 'Too many attempts. Try again in a minute.');
+  return f;
+}
+
+function recordResult(ip, f, ok) {
+  if (ok) return failures.delete(ip);
+  if (failures.size > 10_000) failures.clear(); // don't grow forever under a spray of addresses
+  const count = (f?.count || 0) + 1;
+  failures.set(ip, { count, until: count >= 5 ? Date.now() + 60_000 : 0 });
+}
+
+/** First-run setup code, with the same lockout as the password. */
+export function checkSetupCode(code, ip) {
+  const f = checkLockout(ip);
+  const expected = config.get().auth.setupCode;
+  const given = String(code || '').trim().toUpperCase();
+  const ok = !!expected && given.length === expected.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));
+  recordResult(ip, f, ok);
+  return ok;
+}
+
+export async function verifyPassword(password, ip) {
+  const f = checkLockout(ip);
   const { hash, salt } = config.get().auth;
   if (!hash) return false;
   const attempt = await scrypt(String(password || ''), salt);
   const ok = crypto.timingSafeEqual(Buffer.from(attempt, 'hex'), Buffer.from(hash, 'hex'));
-  if (!ok) {
-    const count = (f?.count || 0) + 1;
-    failures.set(ip, { count, until: count >= 5 ? Date.now() + 60_000 : 0 });
-  } else failures.delete(ip);
+  recordResult(ip, f, ok);
   return ok;
 }
 
@@ -62,7 +81,13 @@ export function parseCookies(header = '') {
   const out = {};
   for (const part of header.split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    const raw = part.slice(i + 1).trim();
+    try {
+      out[part.slice(0, i).trim()] = decodeURIComponent(raw);
+    } catch {
+      out[part.slice(0, i).trim()] = raw; // malformed %-escape from some other cookie
+    }
   }
   return out;
 }
@@ -75,7 +100,9 @@ export function isAuthenticated(req) {
   const payload = v.slice(0, i);
   const sig = v.slice(i + 1);
   const expected = sign(payload);
-  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return false;
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false; // byte lengths: non-ASCII would make timingSafeEqual throw
   return Number(payload.split('.')[0]) > Date.now();
 }
 

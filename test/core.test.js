@@ -51,6 +51,20 @@ test('password + session cookie round-trip', async () => {
   assert.equal(auth.isAuthenticated({ headers: { cookie } }), true);
   assert.equal(auth.isAuthenticated({ headers: { cookie: cookie.slice(0, -2) + 'xx' } }), false);
   await assert.rejects(auth.setPassword('short'));
+  // Malformed or non-ASCII cookies are rejected, not thrown.
+  assert.equal(auth.isAuthenticated({ headers: { cookie: 'autonode_session=%E0' } }), false);
+  assert.equal(auth.isAuthenticated({ headers: { cookie: `${cookie.slice(0, -1)}é` } }), false);
+});
+
+test('site names never resolve to Object internals', () => {
+  for (const n of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) assert.throws(() => sites.getSite(n), /does not exist/);
+});
+
+test('webhook path with a malformed escape answers 404 instead of crashing', async () => {
+  let status = null;
+  const res = { writeHead: (s) => (status = s), end: () => {} };
+  await deploy.handleHook({ url: '/.autonode/deploy/%E0', method: 'POST', headers: {} }, res);
+  assert.equal(status, 404);
 });
 
 test('hostname and site-name validation', () => {
@@ -144,6 +158,13 @@ test('backup: settings-only and full export round-trip', async () => {
   const junk = path.join(tmp, 'junk.json');
   fs.writeFileSync(junk, '{"hello":1}');
   await assert.rejects(backup.inspect(junk), /isn't an AutoNode backup/);
+
+  // A site whose name doesn't match its (valid) key would escape the sites folder.
+  const evil = path.join(tmp, 'evil.json');
+  const m = backup.buildManifest();
+  m.config.sites = { shop: { ...m.config.sites.shop, name: '../../etc' } };
+  fs.writeFileSync(evil, JSON.stringify(m));
+  await assert.rejects(backup.inspect(evil), /invalid website name/);
 });
 
 test('chunked uploads: resume, retry, ordering, completion', async () => {

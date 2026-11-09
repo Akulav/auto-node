@@ -133,7 +133,11 @@ export async function unzip(name, rel) {
   const { full } = resolveInSite(name, rel);
   if (!which('unzip')) throw new HttpError(500, 'The "unzip" program is missing. Install it with: sudo apt install unzip');
   const dest = path.dirname(full);
-  const r = await run('unzip', ['-o', '-q', full, '-d', dest], { quiet: true });
+  // Extract as the site user, not root, so symlinks inside the archive can't write outside the site.
+  const { siteUser } = await import('./runner.js');
+  const ids = await siteUser();
+  await fixOwnership(dest);
+  const r = await run('unzip', ['-o', '-q', full, '-d', dest], { quiet: true, uid: ids?.uid, gid: ids?.gid });
   if (r.code > 1) throw new HttpError(400, `Couldn't unzip: ${r.stderr.trim()}`);
   fs.rmSync(full, { force: true });
   // If the zip contained a single top-level folder with a package.json, flatten it.

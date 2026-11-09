@@ -2,6 +2,25 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-11-09
+
+### Security
+
+- A single malformed request (for example `GET //`, or a broken `%` escape in the address) crashed the whole AutoNode daemon. The deploy-hook address on the public ports 80/443 had the same problem, so anyone on the internet could take it down. Bad requests now get a 400/404 and the server keeps running.
+- The first-run setup code can no longer be guessed endlessly: it uses the same 5-tries-then-wait lockout as the password.
+- Restoring a backup checks that each website's name matches its entry, so a crafted backup can't point a website folder outside `/var/lib/autonode/sites` (restore deletes and replaces that folder as root). Ports and domain lists are checked too, and archive owners are no longer recreated.
+- `.zip` files are extracted as the website user instead of root, so links inside an archive can't write outside the website folder.
+- Branch names starting with `-` are refused (git would treat them as options).
+- Static IP: the network interface name must be one that exists, since it is written into the netplan file.
+- Website names like `__proto__` or `constructor` no longer resolve to internal objects.
+
+### Fixed
+
+- Downloading a file whose name has accents or other non-English letters failed with an error.
+- A website title containing `` ` ``, `$`, `<` or quotes broke the starter page's `server.js`.
+- Odd cookies from other apps on the same address could cause sign-in errors.
+- Uploads sent to an address with a trailing slash could hang.
+
 ## [1.0.2] - 2026-11-09
 
 ### Fixed
