@@ -1,0 +1,42 @@
+name: Release
+
+# Push a tag like v1.2.0 to publish a GitHub release.
+# Servers with "Install updates automatically" pick up new commits on main.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run lint && npm test
+
+      - name: Check the tag matches package.json
+        run: |
+          v=$(node -p "require('./package.json').version")
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "Tag ${GITHUB_REF_NAME} != package.json v$v"; exit 1; }
+
+      - name: Extract changelog notes
+        run: |
+          awk "/^## \[${GITHUB_REF_NAME#v}\]/{f=1;next} /^## \[/{f=0} f" CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "See CHANGELOG.md" > notes.md
+
+      - name: Build tarball
+        run: |
+          mkdir -p dist
+          tar --exclude=.git --exclude=dist --exclude=.dev -czf "dist/autonode-${GITHUB_REF_NAME}.tar.gz" .
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.tar.gz --title "AutoNode $GITHUB_REF_NAME" --notes-file notes.md

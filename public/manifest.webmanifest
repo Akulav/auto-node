@@ -1,0 +1,10 @@
+{
+  "name": "AutoNode",
+  "short_name": "AutoNode",
+  "description": "Host and manage your Node.js websites. Made by Akulav.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f5f7",
+  "theme_color": "#0071e3",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm run lint
+      - run: npm test
+
+  installer:
+    name: Installer script
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck install.sh
+        run: shellcheck install.sh
+      - name: Dashboard boots in dev mode
+        run: |
+          node bin/autonode.js dev > server.log 2>&1 &
+          for i in $(seq 1 20); do curl -fs http://127.0.0.1:7070/api/session && break; sleep 0.5; done
+          curl -fs http://127.0.0.1:7070/api/session | grep -q '"setUp":false'
+          curl -fs http://127.0.0.1:7070/ | grep -q AutoNode
+          cat server.log

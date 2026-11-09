@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "autonode-dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["bin/autonode.js", "dev"],
+      "port": 7070
+    }
+  ]
+}

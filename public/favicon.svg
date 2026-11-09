@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="AutoNode">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3a8dff"/>
+      <stop offset="1" stop-color="#5e5ce6"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".28"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#shine)"/>
+  <!-- hexagon (Node) -->
+  <path d="M64 24 98.6 44v40L64 104 29.4 84V44z" fill="none" stroke="#fff" stroke-width="7" stroke-linejoin="round"/>
+  <!-- play / auto arrow -->
+  <path d="M56 50v28l24-14z" fill="#fff" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>
+</svg>
