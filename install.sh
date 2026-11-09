@@ -50,11 +50,14 @@ fi
 
 if [ -d "$DIR/.git" ]; then
   blue "Updating AutoNode in $DIR"
+  git -C "$DIR" config core.fileMode false
   git -C "$DIR" pull --ff-only -q
 else
   blue "Downloading AutoNode to $DIR"
   git clone -q --depth 50 -b "$BRANCH" "$REPO" "$DIR"
 fi
+# chmod +x below must not look like a local edit to the self-updater.
+git -C "$DIR" config core.fileMode false
 
 chmod +x "$DIR/bin/autonode.js"
 node "$DIR/bin/autonode.js" install

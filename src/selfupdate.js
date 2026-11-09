@@ -5,8 +5,9 @@ import { spawn } from 'node:child_process';
 import * as config from './config.js';
 import { run, which, HttpError } from './util.js';
 
+// core.fileMode=false: the installer marks bin/autonode.js executable; that must not count as a local edit.
 const git = async (args) => {
-  const r = await run('git', ['-C', config.APP_ROOT, ...args], { quiet: true, timeout: 120_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+  const r = await run('git', ['-C', config.APP_ROOT, '-c', 'core.fileMode=false', ...args], { quiet: true, timeout: 120_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
   if (r.code !== 0) throw new HttpError(500, (r.stderr || r.stdout).trim() || `git ${args[0]} failed`);
   return r.stdout.trim();
 };
@@ -48,10 +49,21 @@ export async function check() {
 export async function apply() {
   if (!isGitInstall()) throw new HttpError(400, 'AutoNode was not installed from git, so it cannot update itself. Re-run the installer.');
   const status = await git(['status', '--porcelain', '--untracked-files=no']);
-  if (status) throw new HttpError(409, 'AutoNode files were modified locally, so the update was stopped to keep your changes safe.');
+  if (status) {
+    const changed = status.split('\n').map((l) => l.slice(3).trim()).filter(Boolean);
+    throw new HttpError(
+      409,
+      `These AutoNode files were changed on this computer, so the update was stopped to keep your changes safe: ${changed.join(', ')}. ` +
+        `To throw those changes away and update, run: sudo git -C ${config.APP_ROOT} checkout -- . && sudo autonode update`,
+    );
+  }
   const before = await git(['rev-parse', 'HEAD']);
   await git(['pull', '--ff-only', '-q']);
   const after = await git(['rev-parse', 'HEAD']);
+  // Keep the CLI runnable whatever mode the checkout has.
+  try {
+    fs.chmodSync(path.join(config.APP_ROOT, 'bin', 'autonode.js'), 0o755);
+  } catch {}
   scheduleRestart();
   return { updated: before !== after };
 }
