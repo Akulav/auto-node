@@ -55,6 +55,12 @@ const ICONS = {
   warn: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
   lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+  box: '<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>',
+  shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  disk: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
   github: '<path fill="currentColor" stroke="none" d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.4 1.1 2.9.8.1-.6.4-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-5a3.9 3.9 0 0 1 1-2.7c-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7a3.9 3.9 0 0 1 1 2.7c0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9V21c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/>',
   terminal: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/>',
   bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
@@ -608,6 +614,7 @@ const NAV = [
   ['sites', 'Websites', 'sites'],
   ['domains', 'Domains', 'cloud'],
   ['network', 'Network', 'wifi'],
+  ['activity', 'Activity', 'clock'],
   ['settings', 'Settings', 'gear'],
 ];
 
@@ -860,8 +867,10 @@ const SITE_TABS = [
   ['overview', 'Overview'],
   ['files', 'Files'],
   ['logs', 'Logs'],
-  ['domains', 'Domains'],
-  ['github', 'GitHub & Updates'],
+  ['visitors', 'Visitors'],
+  ['domains', 'Domains & Access'],
+  ['github', 'Deploys'],
+  ['tasks', 'Tasks'],
   ['settings', 'Settings'],
 ];
 
@@ -905,7 +914,7 @@ async function siteView(name, tab = 'overview') {
 
   const body = h('div');
   const tabs = h('div', { class: 'tabs' }, SITE_TABS.map(([id, label]) => h('a', { href: `#/sites/${name}/${id}`, class: id === tab ? 'on' : '' }, label)));
-  const views = { overview: siteOverview, files: siteFiles, logs: siteLogs, domains: siteDomains, github: siteGithub, settings: siteSettings };
+  const views = { overview: siteOverview, files: siteFiles, logs: siteLogs, visitors: siteVisitors, domains: siteDomainsAndAccess, github: siteDeploys, tasks: siteTasks, settings: siteSettingsPlus };
   const res = await (views[tab] || siteOverview)(site, (fn) => (tabLive = fn));
   append(body, [res]);
 
@@ -929,6 +938,7 @@ function siteOverview(site, onLive) {
         ['Memory', fmtBytes(st.memory)],
         ['CPU', st.cpu != null ? `${st.cpu.toFixed(1)}%` : '—'],
         ['Restarts', st.restarts ?? 0],
+        ['Health check', h('a', { href: `#/sites/${site.name}/settings`, style: `color:${site.health?.state === 'failing' ? 'var(--bad)' : 'inherit'}` }, healthLabel(site.health))],
       ].flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]),
     );
   };
@@ -971,6 +981,7 @@ function siteOverview(site, onLive) {
           ['Port', site.port],
           ['Size on disk', fmtBytes(site.size)],
           ['Source', site.git ? h('span', { class: 'row' }, icon('github'), site.git.repo.replace(/^https:\/\/github.com\//, '').replace(/\.git$/, ''), ' · ', site.git.branch) : 'Uploaded files'],
+          ['Data folder', h('span', {}, h('a', { href: `#/sites/${site.name}/files?area=data` }, 'Open'), h('span', { class: 'muted' }, ' · your app reads it as '), h('code', {}, 'process.env.DATA_DIR'))],
           ['Created', new Date(site.createdAt).toLocaleDateString()],
         ].flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]),
       ),
@@ -993,6 +1004,7 @@ function siteOverview(site, onLive) {
         h('span', { class: 'small muted' }, 'Installs packages, runs the build script and restarts.'),
       ),
     ),
+    storageCard(site),
   );
 }
 
@@ -1033,7 +1045,9 @@ function siteFiles(site) {
   const folderInput = h('input', { type: 'file', multiple: true, webkitdirectory: true, class: 'hidden', onchange: (e) => uploadFiles([...e.target.files].map((f) => [f.webkitRelativePath || f.name, f])) });
   const zipInput = h('input', { type: 'file', accept: '.zip', class: 'hidden', onchange: (e) => e.target.files[0] && uploadFiles([[e.target.files[0].name, e.target.files[0]]], { unzip: true }) });
   const join = (...p) => ('/' + p.join('/')).replace(/\/+/g, '/');
-  const api_ = (p) => `/api/sites/${site.name}${p}`;
+  // "code" = the website folder (deploys update it); "data" = DATA_DIR (never touched by deploys).
+  let area = new URLSearchParams(location.hash.split('?')[1] || '').get('area') === 'data' ? 'data' : 'code';
+  const api_ = (p) => `/api/sites/${site.name}${p}${p.includes('?') ? '&' : '?'}area=${area}`;
   let locks = site.locks || [];
   let lockedBy = lockMatcher(locks);
   let lastEntries = [];
@@ -1042,7 +1056,7 @@ function siteFiles(site) {
     const rel = p.replace(/^\/+/, '') + (e.type === 'dir' ? '/' : '');
     try {
       if (by && by !== rel) {
-        toast(`Locked by the pattern “${by}”. Remove it on the GitHub & Updates tab.`);
+        toast(`Locked by the pattern “${by}”. Remove it on the Deploys tab.`);
         return;
       }
       const r = by ? await api('DELETE', api_(`/locks?lock=${encodeURIComponent(rel)}`)) : await api('POST', api_('/locks'), { lock: rel });
@@ -1069,7 +1083,7 @@ function siteFiles(site) {
   function paint(entries) {
     lastEntries = entries;
     const parts = cwd.split('/').filter(Boolean);
-    clear(crumbs).append(h('a', { href: '#', onclick: (e) => (e.preventDefault(), load('/')) }, site.name), ...parts.flatMap((p, i) => [h('span', {}, '›'), h('a', { href: '#', onclick: (e) => (e.preventDefault(), load(join(...parts.slice(0, i + 1)))) }, p)]));
+    clear(crumbs).append(h('a', { href: '#', onclick: (e) => (e.preventDefault(), load('/')) }, area === 'data' ? 'Data folder' : site.name), ...parts.flatMap((p, i) => [h('span', {}, '›'), h('a', { href: '#', onclick: (e) => (e.preventDefault(), load(join(...parts.slice(0, i + 1)))) }, p)]));
     clear(table);
     if (cwd !== '/') table.append(h('tr', {}, h('td', { colspan: 4 }, h('div', { class: 'name', onclick: () => load(join(...parts.slice(0, -1))) }, icon('back'), h('span', { class: 'muted' }, 'Back')))));
     if (!entries.length)
@@ -1077,7 +1091,7 @@ function siteFiles(site) {
     for (const e of entries) {
       const p = join(cwd, e.name);
       const open = () => (e.type === 'dir' ? load(p) : openEditor(p));
-      const by = e.heavy ? null : lockedBy(p.replace(/^\/+/, '') + (e.type === 'dir' ? '/' : ''));
+      const by = e.heavy || area === 'data' ? null : lockedBy(p.replace(/^\/+/, '') + (e.type === 'dir' ? '/' : ''));
       table.append(
         h(
           'tr',
@@ -1100,7 +1114,7 @@ function siteFiles(site) {
             { class: 'acts' },
             e.name.endsWith('.zip') && h('button', { class: 'btn sm', title: 'Extract here', onclick: () => doUnzip(p) }, 'Unzip'),
             e.type === 'file' && h('a', { class: 'btn icon ghost', title: 'Download', href: api_(`/file?download=1&path=${encodeURIComponent(p)}`) }, icon('download')),
-            !e.heavy && h('button', { class: 'btn icon ghost', title: by ? 'Unlock (allow GitHub updates to change it)' : 'Lock (GitHub updates will never change or delete it)', style: by ? 'color:var(--good)' : '', onclick: () => toggleLock(p, e, by) }, icon(by ? 'lock' : 'unlock')),
+            !e.heavy && area === 'code' && h('button', { class: 'btn icon ghost', title: by ? 'Unlock (allow GitHub updates to change it)' : 'Lock (GitHub updates will never change or delete it)', style: by ? 'color:var(--good)' : '', onclick: () => toggleLock(p, e, by) }, icon(by ? 'lock' : 'unlock')),
             h('button', { class: 'btn icon ghost', title: 'Rename', onclick: () => doRename(p, e.name) }, icon('edit')),
             h('button', { class: 'btn icon ghost', title: 'Delete', style: 'color:var(--bad)', onclick: () => doDelete(p, e) }, icon('trash')),
           ),
@@ -1302,9 +1316,41 @@ function siteFiles(site) {
   }
 
   load('/');
+  const areaNote = h('div');
+  const paintNote = () =>
+    append(clear(areaNote), [
+      area === 'data'
+        ? notice('good', h('b', {}, 'Data folder. '), 'Store databases and uploads here — GitHub updates, rollbacks and “clean” never touch it, and it is included in full backups. Your app finds it at ', h('code', {}, 'process.env.DATA_DIR'), '.')
+        : null,
+    ]);
+  paintNote();
+  const areaSeg = h(
+    'div',
+    { class: 'segmented' },
+    [
+      ['code', 'Website files'],
+      ['data', 'Data folder'],
+    ].map(([id, label]) =>
+      h(
+        'button',
+        {
+          class: id === area ? 'on' : '',
+          onclick: (ev) => {
+            area = id;
+            [...areaSeg.children].forEach((b) => b.classList.toggle('on', b === ev.currentTarget));
+            paintNote();
+            load('/');
+          },
+        },
+        label,
+      ),
+    ),
+  );
   return h(
     'div',
     { class: 'stack', style: 'gap:14px' },
+    h('div', { class: 'row wrap between' }, areaSeg),
+    areaNote,
     h(
       'div',
       { class: 'row wrap between' },
@@ -2136,6 +2182,10 @@ async function settingsView() {
       return toast(err.message, 'bad');
     }
     wait();
+    showRestore(up);
+  }
+  /** Review a staged backup ({ token, summary }) and restore it. */
+  function showRestore(up) {
     const sm = up.summary;
     sheet((close) => {
       let keepSettings;
@@ -2222,11 +2272,13 @@ async function settingsView() {
           h('div', { class: 'item' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Restore from a backup'), h('div', { class: 'small muted' }, 'Choose a .json or .tar.gz made by AutoNode. You can review it before anything changes.')), h('button', { class: 'btn primary', onclick: () => importInput.click() }, icon('upload'), 'Import…')),
         ),
         importInput,
+        h('div', { style: 'margin-top:16px' }, scheduledBackupsCard(showRestore)),
       ),
       h(
         'div',
         {},
         h('h2', { style: 'margin-bottom:12px' }, 'Security'),
+        h('div', { style: 'margin-bottom:16px' }, dashboardHttpsCard(s)),
         h(
           'form',
           {
@@ -2259,6 +2311,792 @@ async function settingsView() {
   );
 }
 
+/* ===================================================== feature views */
+
+const fmtNum = (n) => Number(n || 0).toLocaleString();
+const healthLabel = (hs) =>
+  !hs?.enabled ? 'Off' : hs.state === 'healthy' ? `Healthy${hs.lastMs != null ? ` · answers in ${hs.lastMs} ms` : ''}` : hs.state === 'failing' ? `Not answering (${hs.fails} of ${hs.threshold})` : 'Waiting for the first check';
+
+/** Single-series bar chart with a per-bar hover readout. */
+function barChart(points, { value, label, format = fmtNum, height = 150, ariaLabel }) {
+  const max = Math.max(1, ...points.map(value));
+  const tip = h('div', { class: 'tip hidden' });
+  const bars = h('div', { class: 'bars', style: `height:${height}px`, role: 'img', 'aria-label': ariaLabel });
+  const wrap = h('div', { class: 'chart' }, bars, tip);
+  for (const p of points) {
+    const v = value(p);
+    const col = h('div', { class: 'bar-col' }, h('div', { class: 'bar', style: `height:${v ? Math.max(2, (v / max) * 100) : 0}%` }));
+    col.addEventListener('pointerenter', () => {
+      tip.textContent = `${label(p)} · ${format(v)}`;
+      tip.classList.remove('hidden');
+      const r = col.getBoundingClientRect();
+      const pr = wrap.getBoundingClientRect();
+      tip.style.left = `${Math.max(60, Math.min(pr.width - 60, r.left - pr.left + r.width / 2))}px`;
+      tip.style.top = `${height - (v / max) * height}px`;
+      col.classList.add('on');
+    });
+    col.addEventListener('pointerleave', () => {
+      tip.classList.add('hidden');
+      col.classList.remove('on');
+    });
+    bars.append(col);
+  }
+  return wrap;
+}
+const axisRow = (labels) => h('div', { class: 'axis' }, h('span', {}, labels[0] || ''), h('span', {}, labels[Math.floor(labels.length / 2)] || ''), h('span', {}, labels.at(-1) || ''));
+
+/* ---- overview: storage */
+
+function meterRow(label, value, total, hint) {
+  const pct = total > 0 && value ? Math.max(0.5, (value / total) * 100) : 0;
+  return h(
+    'div',
+    { class: 'item meter-row' },
+    h('div', { class: 'row between' }, h('div', {}, h('div', { class: 'label' }, label), hint && h('div', { class: 'small muted' }, hint)), h('div', { class: 'mono small' }, fmtBytes(value))),
+    h('div', { class: 'bar-meter thin' }, h('i', { style: `width:${pct.toFixed(1)}%` })),
+  );
+}
+
+function storageCard(site) {
+  const box = h('div', { class: 'card' }, h('div', { class: 'row' }, h('h3', {}, 'Storage'), h('span', { class: 'spin right' })));
+  const load = async (fresh) => {
+    let u;
+    try {
+      u = await api('GET', `/api/sites/${site.name}/usage${fresh ? '?fresh=1' : ''}`);
+    } catch (err) {
+      return append(clear(box), [h('h3', {}, 'Storage'), h('p', { class: 'muted small' }, err.message)]);
+    }
+    const clean = async (reinstall, btn) => {
+      const ok = await confirmSheet({
+        title: reinstall ? 'Clean and reinstall packages?' : 'Delete node_modules?',
+        text: reinstall ? 'node_modules is deleted, packages are installed fresh, and the website restarts. Useful when packages behave strangely.' : 'Frees the space now. The website keeps running, but it needs “Install & Rebuild” before it can start again.',
+        ok: reinstall ? 'Clean & Reinstall' : 'Delete',
+        danger: !reinstall,
+      });
+      if (!ok) return;
+      await busy(btn, async () => {
+        const r = await api('POST', `/api/sites/${site.name}/clean`, { reinstall });
+        toast(`Freed ${fmtBytes(r.freed)}${reinstall ? ' — reinstalling…' : ''}`);
+        load(true);
+      });
+    };
+    let b1, b2;
+    append(clear(box), [
+      h('div', { class: 'row between', style: 'margin-bottom:4px' }, h('h3', {}, 'Storage'), h('span', { class: 'metric-sub' }, `${fmtBytes(u.total)} in total`)),
+      h(
+        'div',
+        { class: 'list flat' },
+        meterRow('Website files', u.code, u.total, 'Your code and build output'),
+        meterRow('Packages', u.nodeModules, u.total, 'node_modules — can be reinstalled any time'),
+        meterRow('Git history', u.git, u.total),
+        meterRow('Data folder', u.data, u.total, 'Databases and uploads (DATA_DIR)'),
+        meterRow('Snapshots', u.snapshots, u.total, 'Copies for rolling back'),
+      ),
+      h(
+        'div',
+        { class: 'row wrap', style: 'margin-top:12px' },
+        (b1 = h('button', { class: 'btn sm', disabled: !u.nodeModules, onclick: () => clean(true, b1) }, icon('restart'), 'Clean & Reinstall Packages')),
+        (b2 = h('button', { class: 'btn sm danger', disabled: !u.nodeModules, onclick: () => clean(false, b2) }, icon('trash'), 'Delete node_modules')),
+        h('button', { class: 'btn sm ghost right', onclick: () => load(true) }, 'Refresh'),
+      ),
+    ]);
+  };
+  load(false);
+  return box;
+}
+
+/* ---- visitors */
+
+async function siteVisitors(site) {
+  let days = 14;
+  const wrap = h('div', { class: 'stack', style: 'gap:16px' });
+  const dateLabel = (d) => new Date(`${d}T12:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const tile = (label, big, sub) => h('div', { class: 'card' }, h('div', { class: 'metric-label' }, label), h('div', { class: 'metric-big', style: 'margin-top:6px' }, big), sub && h('div', { class: 'metric-sub' }, sub));
+  const paint = async () => {
+    const v = await api('GET', `/api/sites/${site.name}/visitors?days=${days}`);
+    const t = v.totals;
+    const errRate = t.requests ? (t.s5 / t.requests) * 100 : 0;
+    const seg = h(
+      'div',
+      { class: 'segmented' },
+      [7, 14, 30, 90].map((d) => h('button', { class: d === days ? 'on' : '', onclick: () => ((days = d), paint().catch((err) => toast(err.message, 'bad'))) }, `${d} days`)),
+    );
+    const top = v.pages[0]?.views || 1;
+    append(clear(wrap), [
+      h('div', { class: 'row between wrap' }, h('p', { class: 'muted small' }, 'Counted by AutoNode as visitors arrive — no cookies, no tracking scripts, no IP addresses stored. Bots are counted separately.'), seg),
+      !site.hostnames.length && notice('info', 'Visitors are counted for traffic that comes in through your domains. ', h('a', { href: `#/sites/${site.name}/domains` }, 'Connect a domain'), ' to start.'),
+      h(
+        'div',
+        { class: 'grid cols-4' },
+        tile('Visitors', fmtNum(t.visitors), `${fmtNum(v.today.visitors)} today`),
+        tile('Requests', fmtNum(t.requests), `${fmtNum(v.today.requests)} today`),
+        tile('Server errors', `${errRate.toFixed(errRate && errRate < 10 ? 1 : 0)}%`, `${fmtNum(t.s5)} errors · ${fmtNum(t.s4)} not found`),
+        tile('Data sent', fmtBytes(t.bytes), `${fmtNum(t.bots)} bot requests`),
+      ),
+      h(
+        'div',
+        { class: 'card' },
+        h('div', { class: 'row between', style: 'margin-bottom:14px' }, h('h3', {}, 'Visitors per day'), h('span', { class: 'small muted' }, `Last ${days} days`)),
+        barChart(v.days, { value: (p) => p.visitors, label: (p) => dateLabel(p.date), format: (n) => `${fmtNum(n)} visitor${n === 1 ? '' : 's'}`, ariaLabel: `Visitors per day for the last ${days} days` }),
+        axisRow(v.days.map((p) => dateLabel(p.date))),
+      ),
+      h(
+        'div',
+        { class: 'grid cols-2' },
+        h(
+          'div',
+          { class: 'card' },
+          h('h3', { style: 'margin-bottom:14px' }, 'Last 24 hours'),
+          barChart(v.hours, { value: (p) => p.requests, label: (p) => `${p.hour.slice(11)}:00`, format: (n) => `${fmtNum(n)} request${n === 1 ? '' : 's'}`, height: 110, ariaLabel: 'Requests per hour, last 24 hours' }),
+          axisRow(v.hours.map((p) => `${p.hour.slice(11)}:00`)),
+        ),
+        h(
+          'div',
+          { class: 'card' },
+          h('h3', { style: 'margin-bottom:12px' }, 'Top pages'),
+          v.pages.length
+            ? h(
+                'div',
+                { class: 'stack tight' },
+                v.pages.map((p) =>
+                  h('div', { class: 'page-row' }, h('div', { class: 'row between' }, h('span', { class: 'mono small ellipsis', title: p.path }, p.path), h('span', { class: 'small muted' }, fmtNum(p.views))), h('div', { class: 'bar-meter thin' }, h('i', { style: `width:${((p.views / top) * 100).toFixed(1)}%` }))),
+                ),
+              )
+            : h('p', { class: 'muted small' }, 'No page views yet.'),
+        ),
+      ),
+    ]);
+  };
+  await paint();
+  return wrap;
+}
+
+/* ---- domains & access: www, maintenance, password, redirects */
+
+async function siteDomainsAndAccess(site) {
+  const el = await siteDomains(site);
+  const t = await api('GET', `/api/sites/${site.name}/traffic`);
+  const save = (patch, btn, msg = 'Saved ✓') =>
+    busy(btn, async () => {
+      const r = await api('PATCH', `/api/sites/${site.name}/traffic`, patch);
+      Object.assign(t, patch);
+      const bad = (r.dns || []).filter((d) => d.action === 'error');
+      toast(bad.length ? `Saved, but DNS failed for ${bad.map((d) => d.hostname).join(', ')}: ${bad[0].error}` : msg, bad.length ? 'bad' : '');
+    });
+
+  // www
+  const apex = t.apexHostnames[0];
+  const wwwOpts = [
+    ['off', 'Leave as is'],
+    ['to-apex', apex ? `www.${apex} → ${apex}` : 'www → main domain'],
+    ['to-www', apex ? `${apex} → www.${apex}` : 'main domain → www'],
+  ];
+  const wwwSeg = h(
+    'div',
+    { class: 'segmented wrap-seg' },
+    wwwOpts.map(([id, label]) =>
+      h(
+        'button',
+        {
+          class: id === (t.www || 'off') ? 'on' : '',
+          disabled: !apex,
+          onclick: (e) => {
+            const btn = e.currentTarget;
+            [...wwwSeg.children].forEach((b) => b.classList.toggle('on', b === btn));
+            save({ www: id }, btn, id === 'off' ? 'www handling off' : 'Saved ✓ — both addresses now lead to one place');
+          },
+        },
+        label,
+      ),
+    ),
+  );
+
+  // Maintenance
+  const mMsg = h('input', { class: 'input', value: t.maintenance.message || '', placeholder: "We're making some improvements and will be back shortly." });
+  const mToggle = toggle(t.maintenance.enabled, async (v, input) => {
+    try {
+      await api('PATCH', `/api/sites/${site.name}/traffic`, { maintenance: { enabled: v, message: mMsg.value } });
+      toast(v ? 'Maintenance mode on — visitors see “Back soon”' : 'Maintenance mode off — website is public again');
+    } catch (err) {
+      input.checked = !v;
+      toast(err.message, 'bad');
+    }
+  }, 'Maintenance mode');
+
+  // Password
+  let aUser, aPass, aSave;
+  const accessFields = h(
+    'div',
+    { class: `form ${t.access.enabled ? '' : 'hidden'}`, style: 'margin-top:14px' },
+    h('div', { class: 'form-grid' }, h('label', { class: 'field' }, 'Username', (aUser = h('input', { class: 'input', value: t.access.username || '', autocomplete: 'off', placeholder: 'guest' }))), h('label', { class: 'field' }, h('span', {}, 'Password ', h('span', { class: 'hint' }, t.access.hasPassword ? '(leave empty to keep the current one)' : '')), (aPass = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', placeholder: t.access.hasPassword ? '••••••••' : 'At least 6 characters' })))),
+    h('div', { class: 'row' }, (aSave = h('button', { class: 'btn primary sm', onclick: () => save({ access: { enabled: true, username: aUser.value, password: aPass.value } }, aSave, 'Password protection on ✓').then(() => (aPass.value = '')) }, 'Save'))),
+  );
+  const aToggle = toggle(t.access.enabled, async (v, input) => {
+    if (v) {
+      accessFields.classList.remove('hidden');
+      aUser.focus();
+      return;
+    }
+    try {
+      await api('PATCH', `/api/sites/${site.name}/traffic`, { access: { enabled: false } });
+      accessFields.classList.add('hidden');
+      toast('Password protection off');
+    } catch (err) {
+      input.checked = true;
+      toast(err.message, 'bad');
+    }
+  }, 'Password protection');
+
+  // Redirects
+  let rules = [...t.redirects];
+  const rulesBox = h('div', { class: 'list' });
+  const paintRules = () => {
+    clear(rulesBox);
+    if (!rules.length) rulesBox.append(h('div', { class: 'item' }, h('div', { class: 'muted small' }, 'No redirects yet.')));
+    rules.forEach((r, i) =>
+      rulesBox.append(
+        h(
+          'div',
+          { class: 'item' },
+          h('code', { class: 'ellipsis', style: 'max-width:40%' }, r.from),
+          h('span', { class: 'muted' }, '→'),
+          h('code', { class: 'grow ellipsis' }, r.to),
+          h('span', { class: 'pill' }, r.code === 301 || r.code === 308 ? 'Permanent' : 'Temporary'),
+          h('button', { class: 'btn icon ghost', title: 'Remove', style: 'color:var(--bad)', onclick: async (e) => ((rules = rules.filter((_, j) => j !== i)), await save({ redirects: rules }, e.currentTarget, 'Redirect removed'), paintRules()) }, icon('trash')),
+        ),
+      ),
+    );
+  };
+  paintRules();
+  let rFrom, rTo, rCode;
+  const addRule = async (e) => {
+    e.preventDefault();
+    const next = [...rules, { from: rFrom.value.trim(), to: rTo.value.trim(), code: Number(rCode.value) }];
+    const btn = e.target.querySelector('button');
+    await busy(btn, async () => {
+      await api('PATCH', `/api/sites/${site.name}/traffic`, { redirects: next });
+      rules = next;
+      rFrom.value = rTo.value = '';
+      paintRules();
+      toast('Redirect added ✓');
+    });
+  };
+
+  el.append(
+    h(
+      'div',
+      { class: 'section', style: 'margin-top:12px' },
+      h('h2', {}, 'www'),
+      h('p', { class: 'muted', style: 'margin:4px 0 14px' }, 'Make both akulav.com and www.akulav.com work, sending visitors to the one you prefer.'),
+      apex ? wwwSeg : notice('info', 'Add your main domain (like akulav.com) above to use this.'),
+      apex && t.www !== 'off' && h('p', { class: 'small muted', style: 'margin-top:10px' }, 'With Cloudflare connected, AutoNode adds the DNS record for the www address too. A wildcard certificate (*.domain) covers it.'),
+    ),
+    h(
+      'div',
+      { class: 'card pad-lg' },
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, h('h3', {}, 'Maintenance mode'), h('p', { class: 'muted small' }, 'Visitors see a clean “Back soon” page while you work. The Preview link (home network) still shows the real site.')), mToggle),
+      h('div', { class: 'input-row', style: 'margin-top:14px' }, mMsg, h('button', { class: 'btn sm', onclick: (e) => save({ maintenance: { enabled: t.maintenance.enabled, message: mMsg.value } }, e.currentTarget, 'Message saved ✓') }, 'Save Message')),
+    ),
+    h(
+      'div',
+      { class: 'card pad-lg' },
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, h('h3', {}, 'Password protection'), h('p', { class: 'muted small' }, 'Ask visitors for a username and password before showing the site — great for staging or private sites.')), aToggle),
+      accessFields,
+      t.access.enabled && !site.hostnames.every((hn) => site.certs[hn]) && h('div', { style: 'margin-top:12px' }, notice('warn', 'Add an HTTPS certificate for this domain so the password is never sent unencrypted.')),
+    ),
+    h(
+      'div',
+      { class: 'section', style: 'margin-top:12px' },
+      h('h2', {}, 'Redirects'),
+      h('p', { class: 'muted', style: 'margin:4px 0 14px' }, 'Send old addresses to new ones. End with * to redirect a whole section, e.g. /blog/* → /news/*.'),
+      rulesBox,
+      h(
+        'form',
+        { class: 'row wrap', style: 'margin-top:12px', onsubmit: addRule },
+        (rFrom = h('input', { class: 'input mono', placeholder: '/old-page', style: 'flex:1;min-width:140px', required: true })),
+        h('span', { class: 'muted' }, '→'),
+        (rTo = h('input', { class: 'input mono', placeholder: '/new-page or https://…', style: 'flex:2;min-width:180px', required: true })),
+        (rCode = h('select', { class: 'input', style: 'width:auto' }, h('option', { value: 301 }, 'Permanent (301)'), h('option', { value: 302 }, 'Temporary (302)'))),
+        h('button', { class: 'btn primary' }, 'Add'),
+      ),
+    ),
+  );
+  return el;
+}
+
+/* ---- deploys: history + snapshots */
+
+async function siteDeploys(site) {
+  const el = await siteGithub(site);
+  const [{ history }, { snapshots, keep }] = await Promise.all([api('GET', `/api/sites/${site.name}/history`), api('GET', `/api/sites/${site.name}/snapshots`)]);
+  const snapIds = new Set(snapshots.map((s) => s.id));
+
+  const restoreSnap = async (id, btn) => {
+    const ok = await confirmSheet({
+      title: 'Roll back to this snapshot?',
+      text: 'The website files go back to how they were then, and packages are reinstalled. Locked files and the data folder keep their current content. A snapshot of right now is taken first, so you can undo this.' + (site.git?.autoUpdate ? ' Automatic updates will be paused.' : ''),
+      ok: 'Roll Back',
+    });
+    if (!ok) return;
+    await busy(btn, async () => {
+      const r = await api('POST', `/api/sites/${site.name}/snapshots/${id}/restore`);
+      toast(`Rolled back ✓ — reinstalling and restarting…${r.autoUpdatePaused ? ' Automatic updates paused.' : ''}`);
+      render();
+    });
+  };
+
+  const showLog = async (id) => {
+    try {
+      const { log } = await api('GET', `/api/sites/${site.name}/history/${id}/log`);
+      sheet((close) => h('div', {}, h('h2', { style: 'margin-bottom:12px' }, 'Deploy log'), h('div', { class: 'terminal' }, log || 'No output.'), h('div', { class: 'sheet-actions' }, h('button', { class: 'btn', onclick: () => copy(log, 'Log copied') }, icon('copy'), 'Copy'), h('button', { class: 'btn primary', onclick: close }, 'Close'))), { wide: true });
+    } catch (err) {
+      toast(err.message, 'bad');
+    }
+  };
+
+  const historyList = h(
+    'div',
+    { class: 'list' },
+    !history.length && h('div', { class: 'item' }, h('div', { class: 'muted small' }, 'No deploys yet.')),
+    history.slice(0, 20).map((e) => {
+      const title = e.commit ? h('span', {}, h('code', { class: 'muted' }, e.commit.hash), ' ', e.commit.subject) : e.kind === 'build' ? 'Install & rebuild' : 'Deploy';
+      return h(
+        'div',
+        { class: 'item' },
+        h('span', { class: `pill ${e.ok ? 'good' : 'bad'}` }, h('span', { class: 'dot' }), e.ok ? 'OK' : 'Failed'),
+        h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label ellipsis' }, title), h('div', { class: 'small muted ellipsis' }, `${fmtAgo(e.at)} · ${e.by === 'you' ? 'by you' : e.by} · ${e.reason} · ${Math.max(1, Math.round((e.durationMs || 0) / 1000))} s${e.ok ? '' : ` · ${e.error || ''}`}`)),
+        h('button', { class: 'btn sm', onclick: () => showLog(e.id) }, 'Log'),
+        e.snapshot && snapIds.has(e.snapshot) && h('button', { class: 'btn sm', title: 'Put the files back as they were just before this deploy', onclick: (ev) => restoreSnap(e.snapshot, ev.currentTarget) }, 'Undo'),
+        site.git &&
+          e.ok &&
+          e.commit &&
+          h(
+            'button',
+            {
+              class: 'btn sm',
+              title: 'Deploy exactly this commit again',
+              onclick: async (ev) => {
+                const btn = ev.currentTarget;
+                if (!(await confirmSheet({ title: `Deploy ${e.commit.hash} again?`, text: `“${e.commit.subject}” will be downloaded and deployed. Automatic updates will be paused so this version stays until you turn them back on.`, ok: 'Deploy This Version' }))) return;
+                await busy(btn, async () => {
+                  await api('POST', `/api/sites/${site.name}/deploy`, { ref: e.commit.hash });
+                  toast(`Deploying ${e.commit.hash}…`);
+                  render();
+                });
+              },
+            },
+            'Redeploy',
+          ),
+      );
+    }),
+  );
+
+  let snapBtn;
+  const snapList = h(
+    'div',
+    { class: 'list' },
+    !snapshots.length && h('div', { class: 'item' }, h('div', { class: 'muted small' }, 'No snapshots yet. One is taken automatically before every GitHub deploy.')),
+    snapshots.map((s) =>
+      h(
+        'div',
+        { class: 'item' },
+        h('span', { style: 'display:flex;color:var(--accent)' }, icon('box')),
+        h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label' }, new Date(s.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })), h('div', { class: 'small muted ellipsis' }, `${s.reason}${s.commit ? ` · ${s.commit.hash} ${s.commit.subject}` : ''} · ${fmtBytes(s.size)}`)),
+        h('button', { class: 'btn sm', onclick: (ev) => restoreSnap(s.id, ev.currentTarget) }, 'Roll Back'),
+        h('button', { class: 'btn icon ghost', title: 'Delete snapshot', style: 'color:var(--bad)', onclick: async () => (await confirmSheet({ title: 'Delete this snapshot?', text: "You won't be able to roll back to it.", ok: 'Delete', danger: true })) && (await api('DELETE', `/api/sites/${site.name}/snapshots/${s.id}`), render()) }, icon('trash')),
+      ),
+    ),
+  );
+
+  el.append(
+    h('div', { class: 'section', style: 'margin-top:12px' }, h('div', { class: 'section-head' }, h('h2', {}, 'Deploy history'), h('span', { class: 'small muted' }, history.length ? `Last ${Math.min(20, history.length)} of ${history.length}` : '')), historyList),
+    h(
+      'div',
+      { class: 'section', style: 'margin-top:12px' },
+      h('div', { class: 'section-head' }, h('div', {}, h('h2', {}, 'Snapshots'), h('p', { class: 'muted small' }, `Copies of the website folder for rolling back. Taken before every GitHub deploy; the newest ${keep} are kept.`)), (snapBtn = h('button', { class: 'btn sm', onclick: () => busy(snapBtn, async () => (await api('POST', `/api/sites/${site.name}/snapshots`), toast('Snapshot saved ✓'), render())) }, icon('box'), 'Take Snapshot Now'))),
+      snapList,
+    ),
+  );
+  return el;
+}
+
+/* ---- scheduled tasks */
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+function describeCron(expr) {
+  const e = String(expr).trim();
+  const presets = { '@hourly': 'Every hour', '@daily': 'Every day at 00:00', '@midnight': 'Every day at 00:00', '@weekly': 'Every Sunday at 00:00', '@monthly': 'On the 1st of every month at 00:00' };
+  if (presets[e]) return presets[e];
+  const [mi, hr, dom, mon, dow] = e.split(/\s+/);
+  const at = /^\d+$/.test(mi) && /^\d+$/.test(hr) ? `${hr.padStart(2, '0')}:${mi.padStart(2, '0')}` : null;
+  if (/^\*\/\d+$/.test(mi) && hr === '*' && dom === '*' && mon === '*' && dow === '*') return `Every ${mi.slice(2)} minutes`;
+  if (/^\d+$/.test(mi) && hr === '*' && dom === '*' && mon === '*' && dow === '*') return mi === '0' ? 'Every hour' : `Every hour at :${mi.padStart(2, '0')}`;
+  if (at && dom === '*' && mon === '*' && dow === '*') return `Every day at ${at}`;
+  if (at && dom === '*' && mon === '*' && /^[0-7]$/.test(dow)) return `Every ${WEEKDAYS[Number(dow) % 7]} at ${at}`;
+  if (at && dom === '*' && mon === '*' && dow === '1-5') return `Weekdays at ${at}`;
+  if (at && /^\d+$/.test(dom) && mon === '*' && dow === '*') return `Monthly on day ${dom} at ${at}`;
+  return e;
+}
+
+function taskSheet(site, task, onSaved) {
+  const PRESETS = [
+    ['*/15 * * * *', 'Every 15 minutes'],
+    ['0 * * * *', 'Every hour'],
+    ['0 3 * * *', 'Every day at 03:00'],
+    ['0 9 * * 1', 'Every Monday at 09:00'],
+    ['0 4 1 * *', 'Monthly, 1st at 04:00'],
+    ['custom', 'Custom…'],
+  ];
+  sheet((close) => {
+    let name, command, preset, custom, timeout;
+    const preview = h('div', { class: 'small muted' });
+    const current = task?.schedule || '0 3 * * *';
+    const isPreset = PRESETS.some(([v]) => v === current);
+    const schedule = () => (preset.value === 'custom' ? custom.value.trim() : preset.value);
+    let timer;
+    const refresh = () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        try {
+          const r = await api('POST', '/api/cron/preview', { schedule: schedule() });
+          preview.textContent = r.next.length ? `${describeCron(schedule())} · next: ${r.next.map((d) => new Date(d).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })).join(', ')}` : 'This schedule never runs.';
+          preview.style.color = '';
+        } catch (err) {
+          preview.textContent = err.message;
+          preview.style.color = 'var(--bad)';
+        }
+      }, 250);
+    };
+    const submit = async (e) => {
+      e.preventDefault();
+      await busy(e.target.querySelector('.primary'), async () => {
+        const body = { name: name.value, command: command.value, schedule: schedule(), timeoutMin: Number(timeout.value) };
+        if (task) await api('PATCH', `/api/sites/${site.name}/tasks/${task.id}`, body);
+        else await api('POST', `/api/sites/${site.name}/tasks`, body);
+        toast(task ? 'Task saved ✓' : 'Task created ✓');
+        close();
+        onSaved();
+      });
+    };
+    const el = h(
+      'form',
+      { onsubmit: submit },
+      h('h2', {}, task ? 'Edit Task' : 'New Task'),
+      h('p', { class: 'muted' }, 'Runs a command in the website folder on a schedule, with the same environment as the website (DATA_DIR, variables).'),
+      h(
+        'div',
+        { class: 'form', style: 'margin-top:16px' },
+        h('label', { class: 'field' }, 'Name', (name = h('input', { class: 'input', value: task?.name || '', placeholder: 'Clean old sessions', required: true }))),
+        h('label', { class: 'field' }, 'Command', (command = h('input', { class: 'input mono', value: task?.command || '', placeholder: 'npm run cleanup', required: true }))),
+        h(
+          'div',
+          { class: 'form-grid' },
+          h('label', { class: 'field' }, 'When', (preset = h('select', { class: 'input', onchange: () => (custom.parentElement.classList.toggle('hidden', preset.value !== 'custom'), refresh()) }, PRESETS.map(([v, l]) => h('option', { value: v, selected: isPreset ? v === current : v === 'custom' }, l))))),
+          h('label', { class: 'field' }, 'Stop after', (timeout = h('select', { class: 'input' }, [5, 15, 30, 60, 120, 240].map((m) => h('option', { value: m, selected: m === (task?.timeoutMin || 30) }, m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? 's' : ''}`))))),
+        ),
+        h('label', { class: `field ${isPreset ? 'hidden' : ''}` }, h('span', {}, 'Schedule ', h('span', { class: 'hint' }, 'minute hour day month weekday — e.g. 30 2 * * 1-5 = weekdays at 02:30')), (custom = h('input', { class: 'input mono', value: isPreset ? '' : current, placeholder: '0 3 * * *', oninput: refresh }))),
+        preview,
+      ),
+      h('div', { class: 'sheet-actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), h('button', { class: 'btn primary' }, task ? 'Save' : 'Create Task')),
+    );
+    refresh();
+    return el;
+  });
+}
+
+async function siteTasks(site) {
+  const wrap = h('div', { class: 'stack', style: 'gap:16px' });
+  const listBox = h('div', { class: 'list' });
+  const paint = async () => {
+    const { tasks } = await api('GET', `/api/sites/${site.name}/tasks`);
+    clear(listBox);
+    if (!tasks.length)
+      listBox.append(h('div', { class: 'item' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'No tasks yet'), h('div', { class: 'small muted' }, 'Examples: clear a cache every night, send a weekly report, back up a database to DATA_DIR.'))));
+    for (const t of tasks) {
+      const last = t.lastRun;
+      listBox.append(
+        h(
+          'div',
+          { class: 'item', style: 'flex-wrap:wrap' },
+          h('span', { style: 'display:flex;color:var(--accent)' }, icon('calendar')),
+          h(
+            'div',
+            { class: 'grow', style: 'min-width:200px' },
+            h('div', { class: 'label' }, t.name, t.running && h('span', { class: 'pill info', style: 'margin-left:8px' }, h('span', { class: 'spin', style: 'width:10px;height:10px' }), 'Running')),
+            h('div', { class: 'small muted' }, h('code', {}, t.command)),
+            h('div', { class: 'small muted' }, t.enabled ? `${describeCron(t.schedule)} · next ${t.next ? new Date(t.next).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}` : 'Paused', last && ` · last run ${fmtAgo(last.at)} `, last && h('span', { class: `pill ${last.ok ? 'good' : 'bad'}` }, last.ok ? 'OK' : 'Failed')),
+          ),
+          toggle(t.enabled, async (v, input) => {
+            try {
+              await api('PATCH', `/api/sites/${site.name}/tasks/${t.id}`, { enabled: v });
+              toast(v ? 'Task on' : 'Task paused');
+              paint();
+            } catch (err) {
+              input.checked = !v;
+              toast(err.message, 'bad');
+            }
+          }, 'Enabled'),
+          h('button', { class: 'btn sm', onclick: async (e) => busy(e.currentTarget, async () => (await api('POST', `/api/sites/${site.name}/tasks/${t.id}/run`), toast('Started ✓'), setTimeout(paint, 800))) }, icon('play'), 'Run Now'),
+          h(
+            'button',
+            {
+              class: 'btn sm',
+              onclick: async () => {
+                const term = h('div', { class: 'terminal' }, 'Loading…');
+                let alive = true;
+                const tick = async () => {
+                  if (!alive) return;
+                  try {
+                    const r = await api('GET', `/api/sites/${site.name}/tasks/${t.id}/log`);
+                    term.textContent = r.output || 'No output yet.';
+                    term.scrollTop = term.scrollHeight;
+                    if (r.running) setTimeout(tick, 1000);
+                  } catch {}
+                };
+                sheet((close) => h('div', {}, h('h2', { style: 'margin-bottom:12px' }, `${t.name} — last output`), term, h('div', { class: 'sheet-actions' }, h('button', { class: 'btn primary', onclick: close }, 'Close'))), { wide: true, onClose: () => (alive = false) });
+                tick();
+              },
+            },
+            'Output',
+          ),
+          h('button', { class: 'btn icon ghost', title: 'Edit', onclick: () => taskSheet(site, t, paint) }, icon('edit')),
+          h('button', { class: 'btn icon ghost', title: 'Delete', style: 'color:var(--bad)', onclick: async () => (await confirmSheet({ title: `Delete “${t.name}”?`, text: 'The task and its history are removed.', ok: 'Delete', danger: true })) && (await api('DELETE', `/api/sites/${site.name}/tasks/${t.id}`), paint()) }, icon('trash')),
+        ),
+      );
+    }
+  };
+  await paint();
+  append(wrap, [h('div', { class: 'row between wrap' }, h('p', { class: 'muted' }, 'Run commands on a schedule, like cron. Output and results are kept for each run.'), h('button', { class: 'btn primary', onclick: () => taskSheet(site, null, paint) }, icon('plus'), 'New Task')), listBox]);
+  return wrap;
+}
+
+/* ---- site settings: health check + memory limit */
+
+function siteSettingsPlus(site) {
+  const el = siteSettings(site);
+  let hPath, hInterval, hFails, mem;
+  let enabled = false;
+  const result = h('div', { class: 'small muted' });
+  const card = h('div', { class: 'card pad-lg form' }, h('h2', {}, 'Health & limits'), h('p', { class: 'muted small', style: 'margin-top:-8px' }, 'Loading…'));
+  api('GET', `/api/sites/${site.name}/health`)
+    .then(({ settings, status }) => {
+      enabled = settings.enabled;
+      const fields = h(
+        'div',
+        { class: `form ${enabled ? '' : 'dim-off'}` },
+        h(
+          'div',
+          { class: 'form-grid' },
+          h('label', { class: 'field' }, h('span', {}, 'Page to check ', h('span', { class: 'hint' }, '(any answer below 500 counts as healthy)')), (hPath = h('input', { class: 'input mono', value: settings.path, placeholder: '/health' }))),
+          h(
+            'label',
+            { class: 'field' },
+            'Check every',
+            (hInterval = h('select', { class: 'input' }, [15, 30, 60, 300].map((s) => h('option', { value: s, selected: s === settings.interval }, s < 60 ? `${s} seconds` : `${s / 60} minute${s > 60 ? 's' : ''}`)))),
+          ),
+        ),
+        h('label', { class: 'field' }, 'Restart after', (hFails = h('select', { class: 'input', style: 'max-width:280px' }, [2, 3, 5, 10].map((n) => h('option', { value: n, selected: n === settings.failures }, `${n} failed checks in a row`))))),
+        h('div', { class: 'row wrap' }, h('button', { class: 'btn sm', type: 'button', onclick: async (e) => busy(e.currentTarget, async () => { const r = await api('POST', `/api/sites/${site.name}/health/test`, { path: hPath.value }); result.textContent = r.ok ? `✓ Healthy — answered ${r.status} in ${r.ms} ms` : `✖ ${r.error}`; result.style.color = r.ok ? 'var(--good)' : 'var(--bad)'; }) }, icon('heart'), 'Test Now'), result),
+      );
+      const hToggle = toggle(enabled, (v) => {
+        enabled = v;
+        fields.classList.toggle('dim-off', !v);
+      }, 'Health check');
+      append(clear(card), [
+        h('h2', {}, 'Health & limits'),
+        h('div', { class: 'row' }, h('div', { class: 'grow' }, h('h3', {}, 'Automatic health check'), h('p', { class: 'muted small' }, 'AutoNode visits a page every so often and restarts the website if it stops answering — even when the process still looks alive.'), status.enabled && h('p', { class: 'small', style: 'margin-top:4px' }, 'Now: ', h('b', {}, healthLabel(status)), status.restarts ? ` · restarted ${status.restarts}× since AutoNode started` : '')), hToggle),
+        fields,
+        h('h3', { style: 'margin-top:10px' }, 'Memory limit'),
+        h('p', { class: 'muted small', style: 'margin-top:-8px' }, 'If the website uses more than this, it is restarted — so one leaking app can never slow down the others. Leave empty for no limit.'),
+        h('div', { class: 'row' }, (mem = h('input', { class: 'input', type: 'number', min: 64, step: 64, value: site.memoryLimitMB || '', placeholder: 'No limit', style: 'max-width:160px' })), h('span', { class: 'muted' }, 'MB'), site.status?.memory != null && h('span', { class: 'small muted' }, `Uses ${fmtBytes(site.status.memory)} right now`)),
+        h(
+          'div',
+          { class: 'row', style: 'margin-top:8px' },
+          h(
+            'button',
+            {
+              class: 'btn primary',
+              onclick: async (e) =>
+                busy(e.currentTarget, async () => {
+                  const before = site.memoryLimitMB || null;
+                  const after = mem.value ? Number(mem.value) : null;
+                  await api('PATCH', `/api/sites/${site.name}`, { health: { enabled, path: hPath.value, interval: Number(hInterval.value), failures: Number(hFails.value) }, memoryLimitMB: after });
+                  site.memoryLimitMB = after;
+                  if (before !== after && (await confirmSheet({ title: 'Saved ✓', text: 'Restart the website now so the new memory limit applies?', ok: 'Restart Now' }))) {
+                    await api('POST', `/api/sites/${site.name}/restart`);
+                    toast('Restarted ✓');
+                  } else toast('Saved ✓');
+                }),
+            },
+            'Save',
+          ),
+        ),
+      ]);
+    })
+    .catch((err) => append(clear(card), [h('h2', {}, 'Health & limits'), notice('bad', err.message)]));
+  el.insertBefore(card, el.lastChild);
+  return el;
+}
+
+/* ---- activity */
+
+async function activityView() {
+  let entries = (await api('GET', '/api/activity?limit=150')).entries;
+  let onlyProblems = false;
+  const listBox = h('div', { class: 'stack', style: 'gap:18px' });
+  const more = h('button', { class: 'btn', onclick: async (e) => busy(e.currentTarget, async () => { const older = (await api('GET', `/api/activity?limit=150&before=${encodeURIComponent(entries.at(-1).at)}`)).entries; entries = entries.concat(older); if (older.length < 150) more.classList.add('hidden'); paint(); }) }, 'Show Older');
+  if (entries.length < 150) more.classList.add('hidden');
+  const paint = () => {
+    clear(listBox);
+    const shown = onlyProblems ? entries.filter((e) => !e.ok) : entries;
+    if (!shown.length) return listBox.append(h('div', { class: 'card empty' }, h('h2', {}, onlyProblems ? 'No problems' : 'Nothing yet'), h('p', {}, onlyProblems ? 'Nothing has failed recently.' : 'Changes, deploys, sign-ins and automatic actions show up here.')));
+    const groups = new Map();
+    for (const e of shown) {
+      const k = new Date(e.at).toDateString();
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(e);
+    }
+    for (const [day, items] of groups) {
+      const d = new Date(day);
+      const today = new Date().toDateString() === day;
+      listBox.append(
+        h(
+          'div',
+          {},
+          h('div', { class: 'metric-label', style: 'margin:0 0 8px 4px' }, today ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })),
+          h(
+            'div',
+            { class: 'list' },
+            items.map((e) =>
+              h(
+                'div',
+                { class: 'item' },
+                h('span', { class: `pill ${e.ok ? '' : 'bad'}`, style: 'min-width:54px;justify-content:center' }, new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+                h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label ellipsis' }, e.action, e.site && h('a', { class: 'muted', href: `#/sites/${e.site}`, style: 'font-weight:400' }, ` · ${e.site}`)), e.detail && h('div', { class: 'small muted ellipsis', title: e.detail }, e.detail)),
+                h('span', { class: 'small muted', style: 'white-space:nowrap' }, e.by === 'you' ? `you${e.ip ? ` · ${e.ip}` : ''}` : e.by === 'someone' ? `someone · ${e.ip || '?'}` : e.by),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+  };
+  paint();
+  const seg = h(
+    'div',
+    { class: 'segmented' },
+    [
+      [false, 'Everything'],
+      [true, 'Problems'],
+    ].map(([v, label]) => h('button', { class: v === onlyProblems ? 'on' : '', onclick: (e) => ((onlyProblems = v), [...seg.children].forEach((b) => b.classList.toggle('on', b === e.currentTarget)), paint()) }, label)),
+  );
+  return h('div', { class: 'page' }, pageHead('Activity', { sub: 'Who did what, and when — including automatic updates, health-check restarts, backups and sign-ins.', actions: seg }), listBox, h('div', { class: 'center', style: 'margin-top:18px' }, more));
+}
+
+/* ---- settings: scheduled backups + dashboard HTTPS */
+
+function scheduledBackupsCard(showRestore) {
+  const card = h('div', { class: 'card pad-lg' }, h('h3', {}, 'Automatic backups'), h('p', { class: 'muted small' }, 'Loading…'));
+  const load = async () => {
+    const { settings: s, backups, running } = await api('GET', '/api/backups');
+    let time, keep, copyTo;
+    const save = async (patch, btn) => {
+      const run = async () => {
+        await api('PATCH', '/api/backups', patch);
+        toast('Saved ✓');
+      };
+      if (btn) await busy(btn, run);
+      else await run().catch((err) => toast(err.message, 'bad'));
+    };
+    let nowBtn;
+    append(clear(card), [
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, h('h3', {}, 'Automatic backups'), h('p', { class: 'muted small' }, 'A full backup (settings, website files and data folders) every day. ', s.lastRun ? (s.lastOk ? `Last one ${fmtAgo(s.lastRun)} ✓` : `Last attempt failed ${fmtAgo(s.lastRun)}: ${s.lastError}`) : 'None made yet.')), toggle(s.enabled, (v) => save({ enabled: v }), 'Automatic backups')),
+      h(
+        'div',
+        { class: 'form-grid', style: 'margin-top:14px' },
+        h('label', { class: 'field' }, 'Time of day', (time = h('input', { class: 'input', type: 'time', value: s.time, onchange: () => save({ time: time.value }) }))),
+        h('label', { class: 'field' }, 'Keep', (keep = h('select', { class: 'input', onchange: () => save({ keep: Number(keep.value) }) }, [3, 7, 14, 30, 90].map((n) => h('option', { value: n, selected: n === s.keep }, `Last ${n} backups`))))),
+      ),
+      h(
+        'label',
+        { class: 'field', style: 'margin-top:14px' },
+        h('span', {}, 'Also copy to ', h('span', { class: 'hint' }, '(optional — another disk or a mounted network share, e.g. /mnt/nas/autonode)')),
+        h('div', { class: 'input-row' }, (copyTo = h('input', { class: 'input mono', value: s.copyTo || '', placeholder: '/mnt/backup-disk/autonode' })), h('button', { class: 'btn sm', onclick: (e) => save({ copyTo: copyTo.value }, e.currentTarget) }, 'Save')),
+      ),
+      h('p', { class: 'small muted', style: 'margin-top:10px' }, 'Stored in ', h('code', {}, s.folder), '. Backups contain keys and tokens: keep the copy folder private.'),
+      h(
+        'div',
+        { class: 'row wrap', style: 'margin-top:14px' },
+        (nowBtn = h(
+          'button',
+          {
+            class: 'btn',
+            disabled: running,
+            onclick: async () =>
+              busy(nowBtn, async () => {
+                await api('POST', '/api/backups/run');
+                toast('Backing up… this can take a minute.');
+                setTimeout(() => load().catch(() => {}), 4000);
+              }),
+          },
+          running ? 'Backup running…' : 'Back Up Now',
+        )),
+      ),
+      backups.length > 0 &&
+        h(
+          'div',
+          { class: 'list flat', style: 'margin-top:14px' },
+          backups.slice(0, 10).map((b) =>
+            h(
+              'div',
+              { class: 'item' },
+              h('span', { style: 'display:flex;color:var(--accent)' }, icon('disk')),
+              h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label' }, new Date(b.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })), h('div', { class: 'small muted' }, `${b.kind === 'manual' ? 'Made by you' : 'Scheduled'} · ${fmtBytes(b.size)}`)),
+              h('a', { class: 'btn icon ghost', title: 'Download', href: `/api/backups/${encodeURIComponent(b.name)}` }, icon('download')),
+              h('button', { class: 'btn sm', onclick: async (e) => busy(e.currentTarget, async () => showRestore(await api('POST', `/api/backups/${encodeURIComponent(b.name)}/prepare`))) }, 'Restore…'),
+              h('button', { class: 'btn icon ghost', title: 'Delete', style: 'color:var(--bad)', onclick: async () => (await confirmSheet({ title: 'Delete this backup?', text: 'It is removed from this computer (copies in the extra folder stay).', ok: 'Delete', danger: true })) && (await api('DELETE', `/api/backups/${encodeURIComponent(b.name)}`), load()) }, icon('trash')),
+            ),
+          ),
+        ),
+    ]);
+  };
+  load().catch((err) => append(clear(card), [h('h3', {}, 'Automatic backups'), notice('bad', err.message)]));
+  return card;
+}
+
+function dashboardHttpsCard(s) {
+  const on = location.protocol === 'https:' || s.dashboardHttps;
+  return h(
+    'div',
+    { class: 'card pad-lg' },
+    h(
+      'div',
+      { class: 'row' },
+      h('div', { class: 'grow' }, h('h3', {}, 'Secure dashboard (HTTPS)'), h('p', { class: 'muted small' }, 'Encrypts the connection to this dashboard so nobody on your Wi-Fi can read your password. Uses a certificate made for this computer: your browser asks you to trust it once.')),
+      toggle(on, async (v, input) => {
+        if (v && !(await confirmSheet({ title: 'Turn on HTTPS?', text: 'The dashboard reloads at https://… Your browser will warn that the certificate is “not trusted” — that is expected for a home server. Choose “Advanced → Continue” once (or install the certificate below to remove the warning). If you ever get locked out, run “sudo autonode https off” on the server.', ok: 'Turn On' }))) return (input.checked = false);
+        try {
+          const r = await api('PATCH', '/api/settings', { dashboardHttps: v });
+          toast(v ? 'Switching to HTTPS…' : 'Switching back to HTTP…');
+          setTimeout(() => (location.href = r.url), 600);
+        } catch (err) {
+          input.checked = !v;
+          toast(err.message, 'bad');
+        }
+      }, 'Secure dashboard'),
+    ),
+    s.dashboardCert?.hasCert &&
+      h(
+        'div',
+        { class: 'row wrap', style: 'margin-top:14px' },
+        h('a', { class: 'btn sm', href: '/api/dashboard-cert' }, icon('download'), 'Download Certificate'),
+        h('button', { class: 'btn sm', onclick: async (e) => busy(e.currentTarget, async () => (await api('POST', '/api/dashboard-cert/regenerate'), toast('New certificate made ✓ — reload the page'))) }, 'Make New Certificate'),
+        h('span', { class: 'small muted' }, `Covers ${s.dashboardCert.names.slice(0, 4).join(', ')}${s.dashboardCert.names.length > 4 ? '…' : ''}. Make a new one if this computer's address changed.`),
+      ),
+    s.dashboardCert?.hasCert && h('details', { class: 'more' }, h('summary', {}, 'Remove the browser warning'), h('div', { class: 'small', style: 'color:var(--text-2)' }, h('ol', { style: 'padding-left:18px;display:flex;flex-direction:column;gap:6px' }, h('li', {}, h('b', {}, 'Mac: '), 'open the downloaded file → Keychain Access → double-click it → Trust → “Always Trust”.'), h('li', {}, h('b', {}, 'Windows: '), 'open the file → Install Certificate → Local Machine → “Trusted Root Certification Authorities”.'), h('li', {}, h('b', {}, 'iPhone/iPad: '), 'open the file, install the profile, then Settings → General → About → Certificate Trust Settings → turn it on.'), h('li', {}, h('b', {}, 'Android: '), 'Settings → Security → Encryption & credentials → Install a certificate → CA certificate.')))),
+  );
+}
+
 /* =========================================================== router */
 
 let renderToken = 0;
@@ -2281,11 +3119,11 @@ async function render() {
     return;
   }
   connectStream();
-  const [, route = 'overview', a, b] = (location.hash || '#/overview').split('/');
+  const [, route = 'overview', a, b] = (location.hash || '#/overview').split('?')[0].split('/'); // "?…" = view options (e.g. ?area=data)
   let view;
   try {
     if (route === 'sites' && a) view = await siteView(decodeURIComponent(a), b);
-    else view = await ({ overview: overviewView, sites: sitesView, domains: domainsView, network: networkView, settings: settingsView }[route] || overviewView)();
+    else view = await ({ overview: overviewView, sites: sitesView, domains: domainsView, network: networkView, activity: activityView, settings: settingsView }[route] || overviewView)();
   } catch (err) {
     if (err.message === 'Please sign in.') return;
     view = h('div', { class: 'page' }, h('div', { class: 'card empty' }, h('h2', {}, 'Something went wrong'), h('p', {}, err.message), h('a', { class: 'btn primary', href: '#/overview' }, 'Go to Overview')));

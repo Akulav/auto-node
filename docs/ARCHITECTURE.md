@@ -41,6 +41,15 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/files.js` | Path-confined file operations, unzip, placing finished uploads |
 | `src/uploads.js` | Chunked, resumable uploads (idempotent pieces at byte offsets, free-space check, stale cleanup) |
 | `src/deploy.js` | Git connect/check/deploy, auto-update loop, webhook verification, workflow generator |
+| `src/features.js` | API routes for the features below (registered into the router in `server.js`) |
+| `src/activity.js` | Activity log (JSONL, rotated at 5 MB) and plain-language labels for dashboard actions |
+| `src/snapshots.js` | Pre-deploy and manual snapshots (`tar`, no `node_modules`); restore runs tar as the site user, keeps locked files |
+| `src/history.js` | Last 50 deploys per site with logs |
+| `src/health.js` | Health-check loop: probe `127.0.0.1:port/path`, restart after N failures, startup grace and cooldown |
+| `src/traffic.js` | www handling, redirects, maintenance page, password protection (scrypt + cache + lockout) |
+| `src/visitors.js` | Visitor stats: hourly/daily buckets, daily-salted visitor hashes, bot filter |
+| `src/tasks.js` | Cron parser and per-site scheduled tasks |
+| `src/dashtls.js` | Self-signed certificate for the dashboard; the dashboard port sniffs the first byte to serve HTTP and HTTPS |
 | `src/icons.js` | Finds each website's favicon (files, `index.html` links, then the live site) with byte-level type detection |
 | `src/locks.js` | Locked files: patterns that GitHub updates never modify or delete |
 | `src/network.js` | Interface info, static IP via `nmcli` or netplan |

@@ -7,6 +7,7 @@ import path from 'node:path';
 import * as config from './config.js';
 import * as certs from './certs.js';
 import { allSites } from './sites.js';
+import { publicHostnames } from './traffic.js';
 import { run, which, HttpError } from './util.js';
 
 const API = 'https://api.cloudflare.com/client/v4';
@@ -114,7 +115,8 @@ export async function syncAll({ force = false } = {}) {
   if (!ip) throw new HttpError(502, "Couldn't detect your public IP address.");
   if (!force && ip === c.lastIp) return { ip, unchanged: true };
   const results = [];
-  for (const host of allSites().flatMap((s) => s.hostnames)) {
+  // publicHostnames: includes the www twin when "www" handling is on.
+  for (const host of allSites().flatMap((s) => publicHostnames(s))) {
     try {
       results.push(await ensureRecord(host, ip));
     } catch (err) {

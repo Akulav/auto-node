@@ -43,6 +43,8 @@ export function siteEnv(site) {
     NODE_ENV: 'production',
     PORT: String(site.port),
     HOST: '127.0.0.1',
+    // Persistent folder for databases/uploads: updates, rollbacks and "clean" never touch it.
+    DATA_DIR: path.join(config.paths.siteDataRoot, site.name),
     ...site.env,
   };
 }
@@ -67,6 +69,12 @@ export const monotonicNowUs = () => Number(process.hrtime.bigint() / 1000n);
 export function uptimeSeconds(sinceUs, nowUs = monotonicNowUs()) {
   if (!Number.isFinite(sinceUs) || sinceUs <= 0) return null;
   return Math.max(0, (nowUs - sinceUs) / 1e6);
+}
+
+/** Optional memory cap: systemd kills (and, with Restart=always, restarts) a site that goes over it. */
+function memoryLine(site) {
+  const mb = Number(site.memoryLimitMB);
+  return Number.isInteger(mb) && mb >= 64 && mb <= 1048576 ? `MemoryMax=${mb}M\n` : '';
 }
 
 const systemd = {
@@ -100,7 +108,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 LimitNOFILE=65536
-
+${memoryLine(site)}
 [Install]
 WantedBy=multi-user.target
 `;

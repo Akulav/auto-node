@@ -125,6 +125,51 @@ curl -X POST -H "Authorization: Bearer $SECRET" https://blog.akulav.com/.autonod
 
 Backup JSON format: `{ format: "autonode-backup", formatVersion: 1, autonodeVersion, createdAt, hostname, config, certs: [{ id, cert, key }] }`. The `.tar.gz` contains `autonode-backup.json` and a `sites/` folder.
 
+## Snapshots, history, health
+
+| Method | Path | Body / query | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/sites/:name/snapshots` | | `{ snapshots: [{ id, at, reason, commit, size }], keep }` |
+| POST | `/api/sites/:name/snapshots` | | Take one now |
+| POST | `/api/sites/:name/snapshots/:id/restore` | | Roll back (keeps locked files and DATA_DIR, takes a safety snapshot, pauses auto-updates, reinstalls) |
+| DELETE | `/api/sites/:name/snapshots/:id` | | |
+| PATCH | `/api/snapshots` | `{ keep }` | How many per site (1–50) |
+| GET | `/api/sites/:name/history` | | Last 50 deploys: `{ id, kind, reason, by, at, durationMs, ok, error, commit, from, ref, snapshot }` |
+| GET | `/api/sites/:name/history/:id/log` | | Full log of one deploy |
+| POST | `/api/sites/:name/deploy` | `{ ref }` | Deploy a specific earlier commit (pauses auto-updates) |
+| GET | `/api/sites/:name/health` | | `{ settings, status }` |
+| POST | `/api/sites/:name/health/test` | `{ path }` | One probe now |
+| PATCH | `/api/sites/:name` | `{ health: { enabled, path, interval, failures }, memoryLimitMB }` | |
+
+## Traffic, visitors, tasks, usage
+
+| Method | Path | Body / query | Notes |
+| --- | --- | --- | --- |
+| GET / PATCH | `/api/sites/:name/traffic` | `{ www: "off"\|"to-apex"\|"to-www", redirects: [{ from, to, code }], maintenance: { enabled, message }, access: { enabled, username, password } }` | The password hash is never returned |
+| GET | `/api/sites/:name/visitors?days=14` | | `{ days, hours, pages, totals, today }` |
+| GET / POST | `/api/sites/:name/tasks` | `{ name, command, schedule, timeoutMin }` | |
+| PATCH / DELETE | `/api/sites/:name/tasks/:id` | | |
+| POST | `/api/sites/:name/tasks/:id/run` | | Run now |
+| GET | `/api/sites/:name/tasks/:id/log` | | `{ running, output }` |
+| POST | `/api/cron/preview` | `{ schedule }` | Next 3 run times |
+| GET | `/api/sites/:name/usage?fresh=1` | | `{ code, nodeModules, git, data, snapshots, total }` bytes |
+| POST | `/api/sites/:name/clean` | `{ reinstall }` | Delete `node_modules` (and reinstall) |
+
+File routes accept `?area=data` to work in the site's DATA_DIR instead of its code folder.
+
+## Backups (scheduled), activity, dashboard HTTPS
+
+| Method | Path | Body | Notes |
+| --- | --- | --- | --- |
+| GET / PATCH | `/api/backups` | `{ enabled, time: "03:00", keep, copyTo }` | Settings + stored backups |
+| POST | `/api/backups/run` | | Back up now |
+| GET / DELETE | `/api/backups/:file` | | Download / delete one |
+| POST | `/api/backups/:file/prepare` | | Stage for `POST /api/backup/restore` → `{ token, summary }` |
+| GET | `/api/activity?limit=&site=&before=` | | Newest first |
+| PATCH | `/api/settings` | `{ dashboardHttps }` | Returns the new `url` |
+| GET | `/api/dashboard-cert` | | The dashboard certificate, to install as trusted |
+| POST | `/api/dashboard-cert/regenerate` | | New certificate (e.g. after the IP changed) |
+
 ## Network & settings
 
 | Method | Path | Body |

@@ -18,6 +18,14 @@ import * as backup from './backup.js';
 import * as uploads from './uploads.js';
 import * as locks from './locks.js';
 import * as icons from './icons.js';
+import * as activity from './activity.js';
+import * as features from './features.js';
+import * as health from './health.js';
+import * as visitors from './visitors.js';
+import * as tasks from './tasks.js';
+import * as dashtls from './dashtls.js';
+import https from 'node:https';
+import net from 'node:net';
 import crypto from 'node:crypto';
 import { runner, runnerKind, restoreChildren, stopAllChildren } from './runner.js';
 import { HttpError, readJson, readBody, sendJson, normalizeHostname } from './util.js';
@@ -31,7 +39,7 @@ const routes = [];
 const on = (method, pattern, handler, { open = false, raw = false } = {}) => {
   const keys = [];
   const re = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, k) => (keys.push(k), '([^/]+)')) + '/?$');
-  routes.push({ method, re, keys, handler, open, raw });
+  routes.push({ method, pattern, re, keys, handler, open, raw });
 };
 
 function lanAddress() {
@@ -67,13 +75,19 @@ on('POST', '/api/setup', async (req, res, p, body) => {
   if (auth.isSetUp()) throw new HttpError(409, 'A password is already set.');
   if (!config.DEV && !auth.checkSetupCode(body.code, req.socket.remoteAddress)) throw new HttpError(403, 'That setup code is not right. Run "sudo autonode setup-code" on the server to see it.');
   await auth.setPassword(body.password);
-  res.setHeader('Set-Cookie', auth.createSessionCookie(false));
+  activity.record({ action: 'Created the dashboard password', ip: req.socket.remoteAddress?.replace(/^::ffff:/, ''), by: 'you' });
+  res.setHeader('Set-Cookie', auth.createSessionCookie(!!req.socket.encrypted));
   return { ok: true };
 }, { open: true });
 
 on('POST', '/api/login', async (req, res, p, body) => {
-  if (!(await auth.verifyPassword(body.password, req.socket.remoteAddress))) throw new HttpError(401, 'Wrong password.');
-  res.setHeader('Set-Cookie', auth.createSessionCookie(false));
+  const ip = req.socket.remoteAddress?.replace(/^::ffff:/, '');
+  if (!(await auth.verifyPassword(body.password, req.socket.remoteAddress))) {
+    activity.record({ action: 'Failed sign-in', ok: false, ip, by: 'someone' });
+    throw new HttpError(401, 'Wrong password.');
+  }
+  activity.record({ action: 'Signed in', ip, by: 'you' });
+  res.setHeader('Set-Cookie', auth.createSessionCookie(!!req.socket.encrypted));
   return { ok: true };
 }, { open: true });
 
@@ -85,7 +99,7 @@ on('POST', '/api/logout', async (req, res) => {
 on('POST', '/api/password', async (req, res, p, body) => {
   if (!(await auth.verifyPassword(body.current, req.socket.remoteAddress))) throw new HttpError(401, 'Your current password is wrong.');
   await auth.setPassword(body.next);
-  res.setHeader('Set-Cookie', auth.createSessionCookie(false));
+  res.setHeader('Set-Cookie', auth.createSessionCookie(!!req.socket.encrypted));
   return { ok: true };
 });
 
@@ -143,7 +157,7 @@ on('GET', '/api/sites/:name', async (req, res, p) => {
   try {
     size = files.folderSize(sites.siteDir(s.name));
   } catch {}
-  return { ...withStatus, size, deploy: deploy.jobStatus(s.name), lanUrl: `http://${lanAddress()}:${s.port}`, certs: Object.fromEntries(s.hostnames.map((h) => [h, certs.hasCertFor(h)])) };
+  return { ...withStatus, size, deploy: deploy.jobStatus(s.name), health: health.statusOf(s.name), lanUrl: `http://${lanAddress()}:${s.port}`, certs: Object.fromEntries(s.hostnames.map((h) => [h, certs.hasCertFor(h)])) };
 });
 
 on('PATCH', '/api/sites/:name', async (req, res, p, body) => sites.updateSite(p.name, body));
@@ -212,29 +226,31 @@ on('DELETE', '/api/sites/:name/hostnames/:host', async (req, res, p) => {
 /* ------------------------------------------------------------------ files */
 
 const q = (req) => new URL(req.url, 'http://x').searchParams;
+// File routes work in the code folder, or the site's DATA_DIR with ?area=data.
+const sc = (req, p) => files.scope(p.name, q(req).get('area'));
 
 on('GET', '/api/sites/:name/files', async (req, res, p) => {
-  const { rel } = files.resolveInSite(p.name, q(req).get('path') || '/');
-  return { path: rel, entries: files.list(p.name, rel) };
+  const { rel } = files.resolveInSite(sc(req, p), q(req).get('path') || '/');
+  return { path: rel, entries: files.list(sc(req, p), rel) };
 });
 on('GET', '/api/sites/:name/file', async (req, res, p) => {
   const rel = q(req).get('path');
   if (q(req).get('download')) {
-    const { stream, size, filename } = files.downloadStream(p.name, rel);
+    const { stream, size, filename } = files.downloadStream(sc(req, p), rel);
     // Plain ASCII fallback plus the UTF-8 name; raw non-ASCII in a header makes Node throw.
     const ascii = filename.replace(/[^\x20-\x7e]|["\\]/g, '_');
     res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': size, 'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}` });
     stream.pipe(res);
     return undefined;
   }
-  return files.readText(p.name, rel);
+  return files.readText(sc(req, p), rel);
 });
 on('PUT', '/api/sites/:name/file', async (req, res, p) => {
   const body = await readBody(req, 5 * 1024 * 1024);
-  await files.writeText(p.name, q(req).get('path'), body);
+  await files.writeText(sc(req, p), q(req).get('path'), body);
   return { ok: true };
 }, { raw: true });
-on('PUT', '/api/sites/:name/upload', async (req, res, p) => (await files.upload(p.name, q(req).get('path'), req), { ok: true }), { raw: true });
+on('PUT', '/api/sites/:name/upload', async (req, res, p) => (await files.upload(sc(req, p), q(req).get('path'), req), { ok: true }), { raw: true });
 // Chunked, resumable uploads (used for website files and backups).
 on('GET', '/api/chunk', async (req) => uploads.received(q(req).get('id')));
 on('PUT', '/api/chunk', async (req) => uploads.writeChunk(q(req).get('id'), q(req).get('offset'), q(req).get('total'), req), { raw: true });
@@ -243,17 +259,17 @@ on('POST', '/api/sites/:name/upload-complete', async (req, res, p, body) => {
   sites.getSite(p.name);
   const tmp = uploads.take(body.id, body.total);
   try {
-    await files.placeUpload(p.name, body.path, tmp);
+    await files.placeUpload(sc(req, p), body.path, tmp);
   } catch (err) {
     uploads.discard(body.id);
     throw err;
   }
   return { ok: true };
 });
-on('POST', '/api/sites/:name/mkdir', async (req, res, p, body) => (await files.mkdir(p.name, body.path), { ok: true }));
-on('POST', '/api/sites/:name/rename', async (req, res, p, body) => (files.rename(p.name, body.from, body.to), { ok: true }));
-on('POST', '/api/sites/:name/unzip', async (req, res, p, body) => (await files.unzip(p.name, body.path), { ok: true }));
-on('DELETE', '/api/sites/:name/files', async (req, res, p) => (files.remove(p.name, q(req).get('path')), { ok: true }));
+on('POST', '/api/sites/:name/mkdir', async (req, res, p, body) => (await files.mkdir(sc(req, p), body.path), { ok: true }));
+on('POST', '/api/sites/:name/rename', async (req, res, p, body) => (files.rename(sc(req, p), body.from, body.to), { ok: true }));
+on('POST', '/api/sites/:name/unzip', async (req, res, p, body) => (await files.unzip(sc(req, p), body.path), { ok: true }));
+on('DELETE', '/api/sites/:name/files', async (req, res, p) => (files.remove(sc(req, p), q(req).get('path')), { ok: true }));
 
 /* ----------------------------------------------------------------- deploy */
 
@@ -346,14 +362,18 @@ on('POST', '/api/network', async (req, res, p, body) => network.apply(body));
 
 on('GET', '/api/settings', async () => {
   const c = config.get();
-  return { selfUpdateAuto: c.selfUpdate.auto, lastCheck: c.selfUpdate.lastCheck, redirectHttps: c.proxy.redirectHttps, dashboardPort: c.dashboard.port, proxy: proxy.status, version: config.pkg.version, gitInstall: selfupdate.isGitInstall(), runner: runnerKind(), node: process.version, paths: config.paths };
+  return { selfUpdateAuto: c.selfUpdate.auto, lastCheck: c.selfUpdate.lastCheck, redirectHttps: c.proxy.redirectHttps, dashboardPort: c.dashboard.port, dashboardHttps: !!c.dashboard.https, dashboardCert: dashtls.info(), snapshotsKeep: c.snapshots.keep, proxy: proxy.status, version: config.pkg.version, gitInstall: selfupdate.isGitInstall(), runner: runnerKind(), node: process.version, paths: config.paths };
 });
 on('PATCH', '/api/settings', async (req, res, p, body) => {
+  if (body.dashboardHttps === true) await dashtls.ensureCert(); // fail before switching if openssl is missing
   config.update((c) => {
     if (body.selfUpdateAuto != null) c.selfUpdate.auto = !!body.selfUpdateAuto;
     if (body.redirectHttps != null) c.proxy.redirectHttps = !!body.redirectHttps;
+    if (body.dashboardHttps != null) c.dashboard.https = !!body.dashboardHttps;
   });
-  return { ok: true };
+  const port = config.get().dashboard.port;
+  const host = String(req.headers.host || `${lanAddress()}:${port}`);
+  return { ok: true, url: body.dashboardHttps != null ? `${body.dashboardHttps ? 'https' : 'http'}://${host}/#/settings` : undefined };
 });
 /* ----------------------------------------------------------------- backup */
 
@@ -399,6 +419,20 @@ on('POST', '/api/backup/upload-complete', async (req, res, p, body) => {
     throw err;
   }
 });
+/** Validate a backup file and park it for POST /api/backup/restore. */
+async function stageBackup(file) {
+  try {
+    const summary = await backup.inspect(file);
+    const token = crypto.randomUUID();
+    pendingImports.set(token, { file, at: Date.now() });
+    return { token, summary };
+  } catch (err) {
+    fs.rmSync(file, { force: true });
+    throw err;
+  }
+}
+features.register(on, { q, stageBackup });
+
 on('POST', '/api/backup/restore', async (req, res, p, body) => {
   const pending = pendingImports.get(body.token);
   if (!pending) throw new HttpError(410, 'That upload expired. Please choose the file again.');
@@ -460,8 +494,11 @@ async function handler(req, res) {
     if (r.method !== req.method) continue;
     const m = r.re.exec(url.pathname);
     if (!m) continue;
+    let params = {};
+    let body = {};
+    let failed = null;
     try {
-      const params = Object.fromEntries(
+      params = Object.fromEntries(
         r.keys.map((k, i) => {
           try {
             return [k, decodeURIComponent(m[i + 1])];
@@ -472,15 +509,18 @@ async function handler(req, res) {
       );
       if (!r.open && !auth.isAuthenticated(req)) throw new HttpError(401, 'Please sign in.');
       // Raw routes stream their own body (files, chunks, backups).
-      const body = req.method === 'GET' || req.method === 'DELETE' || r.raw ? {} : await readJson(req, 2 * 1024 * 1024);
+      body = req.method === 'GET' || req.method === 'DELETE' || r.raw ? {} : await readJson(req, 2 * 1024 * 1024);
       const out = await r.handler(req, res, params, body);
       if (out !== undefined && !res.headersSent) sendJson(res, 200, out);
     } catch (err) {
       const status = err.status || 500;
+      failed = err.message || 'Something went wrong';
       if (status === 500) console.error(`[api] ${req.method} ${url.pathname}:`, err);
-      if (!res.headersSent) sendJson(res, status, { error: err.message || 'Something went wrong' });
+      if (!res.headersSent) sendJson(res, status, { error: failed });
       else res.end();
+      if (status === 401) return; // not signed in: nothing happened
     }
+    if (req.method !== 'GET') activity.fromRequest({ method: req.method, pattern: r.pattern, params, body, ok: !failed, error: failed, ip: req.socket.remoteAddress });
     return;
   }
   sendJson(res, 404, { error: 'Not found' });
@@ -495,24 +535,55 @@ export async function serve() {
   deploy.startAutoUpdates();
   cf.startDdns();
   selfupdate.startAutoCheck();
+  health.start((name) => deploy.jobStatus(name).running);
+  visitors.start();
+  tasks.start();
+  backup.startScheduler();
 
   const { port, host } = config.get().dashboard;
   // A rejected handler would be an unhandled rejection, which kills the whole daemon.
-  const server = http.createServer((req, res) =>
+  const app = (req, res) =>
     handler(req, res).catch((err) => {
       console.error('[dashboard]', err);
       if (!res.headersSent) sendJson(res, 500, { error: 'Something went wrong' });
       else res.destroy();
-    }),
-  );
-  server.requestTimeout = 0; // uploads & SSE
-  server.headersTimeout = 60_000;
+    });
+  const plain = http.createServer((req, res) => {
+    // HTTPS is on: send plain-HTTP visitors (old bookmarks) to the secure address.
+    if (config.get().dashboard.https && dashtls.secureContext()) {
+      res.writeHead(308, { Location: `https://${req.headers.host || `${lanAddress()}:${port}`}${req.url}` });
+      return res.end();
+    }
+    return app(req, res);
+  });
+  // The certificate is given directly, not via SNI: browsers send no SNI when you visit by IP address.
+  const secure = https.createServer({ ...(dashtls.pair() || {}) }, app);
+  dashtls.onLoad((p) => secure.setSecureContext(p)); // turned on or regenerated while running
+  for (const s of [plain, secure]) {
+    s.requestTimeout = 0; // uploads & SSE
+    s.headersTimeout = 60_000;
+  }
+  secure.on('tlsClientError', () => {});
+  // One port for both: a TLS handshake starts with byte 0x16, plain HTTP with a letter.
+  const server = net.createServer((socket) => {
+    socket.on('error', () => socket.destroy());
+    socket.setTimeout(60_000, () => socket.destroy()); // a client that never sends anything
+    socket.once('data', (chunk) => {
+      socket.setTimeout(0);
+      socket.pause();
+      socket.unshift(chunk);
+      const useTls = chunk[0] === 0x16 && config.get().dashboard.https && dashtls.secureContext();
+      (useTls ? secure : plain).emit('connection', socket);
+      process.nextTick(() => socket.resume());
+    });
+  });
+  if (config.get().dashboard.https) await dashtls.ensureCert().catch((err) => console.error('[dashboard] HTTPS:', err.message));
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);
   });
 
-  const url = `http://${lanAddress()}:${port}`;
+  const url = `${config.get().dashboard.https ? 'https' : 'http'}://${lanAddress()}:${port}`;
   const line = '─'.repeat(52);
   console.log(`\n  ${line}\n   AutoNode ${config.pkg.version}${config.DEV ? '  (dev mode)' : ''}  ·  made by Akulav\n  ${line}`);
   console.log(`   Dashboard   ${url}`);
@@ -523,6 +594,7 @@ export async function serve() {
 
   const shutdown = async () => {
     server.close();
+    visitors.flush();
     await proxy.stop();
     await stopAllChildren();
     process.exit(0);

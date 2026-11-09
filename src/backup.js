@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process';
 import * as config from './config.js';
 import * as certs from './certs.js';
 import { runner } from './runner.js';
-import { siteDir, fixOwnership, allSites, startSite, reservedPorts } from './sites.js';
+import { siteDir, siteDataDir, fixOwnership, allSites, startSite, reservedPorts } from './sites.js';
 import { deploy } from './deploy.js';
 import { HttpError, SITE_NAME_RE, run, which } from './util.js';
 
@@ -60,6 +60,7 @@ export async function streamFullExport(out) {
   fs.writeFileSync(path.join(tmp, JSON_NAME), JSON.stringify(buildManifest(), null, 2), { mode: 0o600 });
   const args = ['-czf', '-', '--exclude=node_modules', '--exclude=*.autonode-upload', '-C', tmp, JSON_NAME];
   if (fs.existsSync(config.paths.sitesDir)) args.push('-C', config.paths.dataDir, 'sites');
+  if (fs.existsSync(config.paths.siteDataRoot)) args.push('-C', config.paths.dataDir, path.basename(config.paths.siteDataRoot)); // each site's DATA_DIR
   const child = spawn('tar', args, { stdio: ['ignore', 'pipe', 'pipe'] });
   let err = '';
   child.stderr.on('data', (d) => (err += d));
@@ -135,6 +136,142 @@ async function open(file) {
   return { manifest: validateManifest(manifest), filesDir: null, cleanup: () => {} };
 }
 
+/* ------------------------------------------------------ scheduled backups */
+
+const STORED_RE = /^autonode-backup-[0-9-]+(?:-auto|-manual)?\.tar\.gz$/;
+
+export function storedFile(name) {
+  if (!STORED_RE.test(String(name))) throw new HttpError(400, 'Invalid backup name.');
+  const file = path.join(config.paths.backupsDir, name);
+  if (!fs.existsSync(file)) throw new HttpError(404, 'That backup no longer exists.');
+  return file;
+}
+
+export function listStored() {
+  let names = [];
+  try {
+    names = fs.readdirSync(config.paths.backupsDir).filter((n) => STORED_RE.test(n));
+  } catch {}
+  return names
+    .map((name) => {
+      const st = fs.statSync(path.join(config.paths.backupsDir, name));
+      return { name, size: st.size, at: st.mtime.toISOString(), kind: name.includes('-manual') ? 'manual' : 'scheduled' };
+    })
+    .sort((a, b) => b.at.localeCompare(a.at));
+}
+
+export function scheduleSettings() {
+  const b = config.get().backups;
+  return { enabled: b.enabled, time: b.time, keep: b.keep, copyTo: b.copyTo, lastRun: b.lastRun, lastOk: b.lastOk, lastError: b.lastError, lastFile: b.lastFile, folder: config.paths.backupsDir };
+}
+
+export function setSchedule(patch = {}) {
+  const next = { ...config.get().backups };
+  if (patch.enabled != null) next.enabled = !!patch.enabled;
+  if (patch.time != null) {
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(patch.time))) throw new HttpError(400, 'Use a time like 03:00.');
+    next.time = patch.time;
+  }
+  if (patch.keep != null) {
+    const k = Number(patch.keep);
+    if (!Number.isInteger(k) || k < 1 || k > 365) throw new HttpError(400, 'Keep between 1 and 365 backups.');
+    next.keep = k;
+  }
+  if (patch.copyTo != null) {
+    const dir = String(patch.copyTo).trim();
+    if (dir) {
+      if (!path.isAbsolute(dir)) throw new HttpError(400, 'Use a full folder path, like /mnt/backup-disk/autonode.');
+      let st;
+      try {
+        st = fs.statSync(dir);
+      } catch {
+        throw new HttpError(400, `The folder ${dir} doesn't exist. Create it (or mount the disk) first.`);
+      }
+      if (!st.isDirectory()) throw new HttpError(400, `${dir} is not a folder.`);
+      if (path.resolve(dir).startsWith(path.resolve(config.paths.sitesDir))) throw new HttpError(400, "Don't put backups inside a website folder: the website could read them.");
+    }
+    next.copyTo = dir;
+  }
+  config.update((c) => {
+    c.backups = next;
+  });
+  return scheduleSettings();
+}
+
+let running = null;
+
+/** Make a full backup into the backups folder (and the extra copy folder), then prune old ones. */
+export function runNow({ kind = 'manual' } = {}) {
+  if (running) return running;
+  running = (async () => {
+    const name = `autonode-backup-${stamp()}-${new Date().getSeconds().toString().padStart(2, '0')}-${kind === 'manual' ? 'manual' : 'auto'}.tar.gz`;
+    const file = path.join(config.paths.backupsDir, name);
+    const started = Date.now();
+    try {
+      fs.mkdirSync(config.paths.backupsDir, { recursive: true, mode: 0o700 });
+      await streamFullExport(fs.createWriteStream(file + '.part', { mode: 0o600 }));
+      fs.renameSync(file + '.part', file);
+      const copyTo = config.get().backups.copyTo;
+      let copied = null;
+      if (copyTo) {
+        fs.copyFileSync(file, path.join(copyTo, name));
+        copied = path.join(copyTo, name);
+      }
+      // Keep the newest N of each kind (manual backups are never removed by the schedule).
+      const keep = config.get().backups.keep;
+      for (const old of listStored().filter((b) => b.kind === 'scheduled').slice(keep)) fs.rmSync(path.join(config.paths.backupsDir, old.name), { force: true });
+      if (copyTo) {
+        try {
+          const extra = fs.readdirSync(copyTo).filter((n) => STORED_RE.test(n) && n.endsWith('-auto.tar.gz')).sort().reverse();
+          for (const old of extra.slice(keep)) fs.rmSync(path.join(copyTo, old), { force: true });
+        } catch {}
+      }
+      config.update((c) => {
+        c.backups.lastRun = new Date().toISOString();
+        if (kind !== 'manual') c.backups.lastScheduled = c.backups.lastRun;
+        c.backups.lastOk = true;
+        c.backups.lastError = null;
+        c.backups.lastFile = name;
+      });
+      const size = fs.statSync(file).size;
+      const { record } = await import('./activity.js');
+      record({ action: kind === 'manual' ? 'Made a backup' : 'Scheduled backup', detail: `${name} (${Math.round(size / 1048576)} MB${copied ? `, copied to ${copyTo}` : ''}, ${Math.round((Date.now() - started) / 1000)} s)`, by: kind === 'manual' ? 'you' : 'schedule' });
+      return { name, size, copied };
+    } catch (err) {
+      fs.rmSync(file + '.part', { force: true });
+      config.update((c) => {
+        c.backups.lastRun = new Date().toISOString();
+        if (kind !== 'manual') c.backups.lastScheduled = c.backups.lastRun; // don't retry every minute; try again tomorrow
+        c.backups.lastOk = false;
+        c.backups.lastError = err.message;
+      });
+      const { record } = await import('./activity.js');
+      record({ action: 'Backup failed', detail: err.message, ok: false, by: kind === 'manual' ? 'you' : 'schedule' });
+      throw err;
+    } finally {
+      running = null;
+    }
+  })();
+  return running;
+}
+
+export const isBackupRunning = () => !!running;
+
+let timer = null;
+export function startScheduler() {
+  if (timer) return;
+  timer = setInterval(() => {
+    const b = config.get().backups;
+    if (!b.enabled || running) return;
+    const now = new Date();
+    const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const lastDay = b.lastScheduled ? new Date(b.lastScheduled).toDateString() : null;
+    // Run once a day, at or after the chosen time (also catches up if the machine was off at that time).
+    if (hhmm >= b.time && lastDay !== now.toDateString()) runNow({ kind: 'scheduled' }).catch((err) => console.error('[backup]', err.message));
+  }, 60_000);
+  timer.unref();
+}
+
 /** Save an uploaded backup to a temp file. */
 export async function receive(req) {
   const file = path.join(config.paths.tmpDir, `upload-${Date.now()}.bin`);
@@ -192,6 +329,14 @@ export async function restore(file, { settings = true, startSites = true } = {})
         fs.cpSync(src, dest, { recursive: true });
       } else fs.mkdirSync(dest, { recursive: true });
       await fixOwnership(dest);
+      // The site's DATA_DIR (databases, uploads), when the backup has it.
+      const dataSrc = filesDir && path.join(path.dirname(filesDir), path.basename(config.paths.siteDataRoot), site.name);
+      if (dataSrc && fs.existsSync(dataSrc)) {
+        const dataDest = siteDataDir(site.name);
+        fs.rmSync(dataDest, { recursive: true, force: true });
+        fs.cpSync(dataSrc, dataDest, { recursive: true });
+        await fixOwnership(dataDest);
+      }
 
       config.update((c) => {
         c.sites[site.name] = site;
@@ -219,8 +364,8 @@ export async function restore(file, { settings = true, startSites = true } = {})
       const s = config.get().sites[name];
       if (!s?.enabled) continue;
       const hasCode = fs.existsSync(path.join(siteDir(name), 'package.json'));
-      if (s.git && !hasCode) deploy(name, { reason: 'restored from backup' });
-      else if (hasCode && !fs.existsSync(path.join(siteDir(name), 'node_modules'))) deploy(name, { reason: 'restored from backup', pull: false });
+      if (s.git && !hasCode) deploy(name, { reason: 'restored from backup', by: 'system' });
+      else if (hasCode && !fs.existsSync(path.join(siteDir(name), 'node_modules'))) deploy(name, { reason: 'restored from backup', pull: false, by: 'system' });
       else await startSite(name).catch((err) => report.warnings.push(`${name}: ${err.message}`));
     }
   }

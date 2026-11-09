@@ -2,6 +2,28 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-11-09
+
+### Added
+
+- **Data folder.** Every website gets `process.env.DATA_DIR` (`/var/lib/autonode/sitedata/<site>`) for databases and uploads. Deploys, rollbacks and cleanups never touch it. It's browsable in the Files tab ("Data folder") and included in full backups.
+- **Snapshots & rollback.** A snapshot of the website folder (code + git history, without `node_modules`) is taken before every GitHub deploy, plus on demand. **Roll back** restores it, keeps locked files and the data folder, takes a safety snapshot first, pauses automatic updates and reinstalls. The newest 5 per site are kept.
+- **Deploy history.** The last 50 deploys per site with commit, previous version, who/what started it, duration and full log. **Redeploy** any earlier commit (automatic updates pause so it stays), or **Undo** a deploy from its snapshot.
+- **Health checks.** Optional per site: AutoNode requests a page every 15 s–5 min and restarts the site after 2–10 failures in a row, with a startup grace period and a cooldown. **Memory limit** per site (systemd `MemoryMax`).
+- **Automatic backups.** Nightly full backups at a time you choose, keeping the last N (manual ones are never pruned), optionally copied to another disk or share. Download, restore or delete them in Settings.
+- **Visitor stats.** A Visitors tab with visitors, requests, server errors, bandwidth, a per-day chart, the last 24 hours and top pages. Counted by the proxy, with no cookies or scripts. Visitors are counted with a daily-salted hash, so no IP addresses are stored. Bots are counted separately.
+- **www handling and redirects.** `www.x → x` or `x → www.x` (DNS for the twin is created when Cloudflare is connected), plus custom redirects with exact paths or `/section/*` prefixes.
+- **Maintenance mode.** A "Back soon" page (503 with `Retry-After`) for visitors, while the home-network Preview link still reaches the site.
+- **Password protection.** Optional username/password for a site (HTTP Basic, scrypt-hashed, cached, 10 wrong tries per visitor → 5-minute wait). The password never reaches the website.
+- **Scheduled tasks.** Cron-style jobs per site (5-field schedules and `@daily`…), with a schedule preview, Run Now, timeout, output and the last 20 runs.
+- **Disk usage.** A Storage card per site (code, packages, git, data, snapshots) with **Clean & Reinstall Packages** and **Delete node_modules**.
+- **Dashboard HTTPS.** An optional self-signed certificate for this computer, on the same port: plain-HTTP visits are redirected. Download the certificate to trust it, regenerate it after an IP change, or `sudo autonode https off` from the server.
+- **Activity log.** A new Activity page: dashboard changes, deploys (and who started them), health-check restarts, backups, task failures and sign-ins, including failed ones with the IP.
+
+### Fixed
+
+- A deploy reported "finished" before its result was saved, so the UI could briefly show the previous deploy.
+
 ## [1.2.0] - 2026-11-09
 
 ### Added

@@ -9,6 +9,9 @@ import * as config from './config.js';
 import { getSite, siteDir, runInSite, restartSite, newSecret, fixOwnership } from './sites.js';
 import { siteUser } from './runner.js';
 import { matcher, lockedFiles, addLocks } from './locks.js';
+import * as snapshots from './snapshots.js';
+import * as history from './history.js';
+import * as activity from './activity.js';
 import { run, which, HttpError, LineBuffer, readBody, sendJson } from './util.js';
 
 const jobs = new Map(); // name -> { running, log, startedAt, finishedAt, ok, error, again }
@@ -189,7 +192,7 @@ const isFile = plainFile;
 const O_NOFOLLOW = fs.constants.O_NOFOLLOW || 0; // undefined on Windows (dev only)
 
 /** Copy a file without following a symlink at either end. */
-function copyNoFollow(from, to) {
+export function copyNoFollow(from, to) {
   const src = fs.openSync(from, fs.constants.O_RDONLY | O_NOFOLLOW);
   try {
     const dst = fs.openSync(to, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | O_NOFOLLOW, fs.fstatSync(src).mode & 0o777);
@@ -206,7 +209,7 @@ function copyNoFollow(from, to) {
 }
 
 /** Make the folders leading to rel real folders inside the site (replacing any symlink or file in the way). */
-function prepareTarget(site, rel) {
+export function prepareTarget(site, rel) {
   const parts = rel.split('/');
   let cur = siteDir(site.name);
   for (let i = 0; i < parts.length; i++) {
@@ -237,8 +240,8 @@ function prepareTarget(site, rel) {
  * Files the website made that aren't in the repo are untouched by reset, so
  * they are never listed. Identical content is never a conflict.
  */
-export async function planUpdate(site) {
-  const incoming = await treeHashes(site, 'FETCH_HEAD');
+export async function planUpdate(site, rev = 'FETCH_HEAD') {
+  const incoming = await treeHashes(site, rev);
   let tracked = new Map();
   let modified = [];
   try {
@@ -321,14 +324,15 @@ export function jobStatus(name) {
  * Pull (if connected to git), install dependencies, build and restart.
  * Returns immediately; follow progress with jobStatus().
  */
-export function deploy(name, { reason = 'manual', pull = true, resolve = null } = {}) {
+export function deploy(name, { reason = 'manual', pull = true, resolve = null, ref = null, by = 'you' } = {}) {
   const site = getSite(name);
+  if (ref != null && !/^[0-9a-f]{7,40}$/i.test(String(ref))) throw new HttpError(400, 'That is not a commit id.');
   const existing = jobs.get(name);
   if (existing?.running) {
     existing.again = true;
     return jobStatus(name);
   }
-  const job = { running: true, log: new LineBuffer(5000), startedAt: new Date().toISOString(), finishedAt: null, ok: null, error: null, kind: pull && site.git ? 'deploy' : 'build' };
+  const job = { id: Date.now().toString(36), running: true, log: new LineBuffer(5000), startedAt: new Date().toISOString(), finishedAt: null, ok: null, error: null, kind: pull && site.git ? 'deploy' : 'build', snapshot: null, from: null };
   jobs.set(name, job);
   const say = (t) => job.log.push(t);
   const stamp = () => new Date().toLocaleTimeString();
@@ -337,13 +341,24 @@ export function deploy(name, { reason = 'manual', pull = true, resolve = null } 
       say(`[${stamp()}] Starting (${reason})\n`);
       if (pull && site.git) {
         await fixOwnership(siteDir(name));
-        say(`[${stamp()}] Downloading latest code from ${site.git.repo.replace(/\.git$/, '')} (${site.git.branch})…\n`);
+        say(`[${stamp()}] Downloading ${ref ? `commit ${ref}` : 'latest code'} from ${site.git.repo.replace(/\.git$/, '')} (${site.git.branch})…\n`);
         await ensureRepo(site, say);
         await git(site, ['fetch', '--depth', '50', 'origin', site.git.branch], say);
+        job.from = await headInfo(site);
+        let target = 'FETCH_HEAD';
+        if (ref) {
+          // GitHub serves any reachable commit by id; fall back to the local history.
+          await git(site, ['fetch', '--depth', '50', 'origin', ref], say).catch(() => {});
+          try {
+            target = await git(site, ['rev-parse', '--verify', '-q', `${ref}^{commit}`]);
+          } catch {
+            throw new HttpError(404, `Commit ${ref} isn't available any more.`);
+          }
+        }
 
         // Safety check: never silently overwrite data the website wrote.
         say(`[${stamp()}] Checking for website data the update would overwrite…\n`);
-        const plan = await planUpdate(site);
+        const plan = await planUpdate(site, target);
         const locks = getSite(name).locks || [];
         const locked = matcher(locks);
         const blocking = plan.conflicts.filter((c) => !locked(c.path));
@@ -370,7 +385,24 @@ export function deploy(name, { reason = 'manual', pull = true, resolve = null } 
         const saved = rescue(site, [...keepNow, ...overwrite], resolve === 'overwrite' ? 'overwritten' : 'kept');
         if (saved) say(`[${stamp()}] Saved a copy of ${keepNow.length + overwrite.length} file(s) to ${saved}\n`);
 
-        await git(site, ['reset', '--hard', 'FETCH_HEAD'], say);
+        // Snapshot of the folder as it is now, so this deploy can be undone in one click.
+        try {
+          const snap = await snapshots.create(name, { reason: `before deploy (${reason})`, commit: job.from });
+          if (snap) {
+            job.snapshot = snap.id;
+            say(`[${stamp()}] Snapshot saved (${snap.id}) — you can roll back to it from the Deploys tab.\n`);
+          }
+        } catch (err) {
+          say(`[${stamp()}] ⚠ Couldn't take a snapshot first: ${err.message}\n`);
+        }
+
+        await git(site, ['reset', '--hard', target], say);
+        if (ref) {
+          config.update((c) => {
+            if (c.sites[name]?.git) c.sites[name].git.autoUpdate = false;
+          });
+          say(`[${stamp()}] Automatic updates were paused so this older version stays. Turn them back on when you're ready.\n`);
+        }
         if (keepNow.length) {
           restoreFrom(site, saved, keepNow);
           say(`[${stamp()}] Kept the server version of: ${keepNow.join(', ')}\n`);
@@ -400,9 +432,9 @@ export function deploy(name, { reason = 'manual', pull = true, resolve = null } 
       job.error = err.message;
       say(`\n[${stamp()}] ✖ ${err.message}\n`);
     } finally {
-      job.running = false;
+      // Record everything first, then report "finished", so readers never see a stale history.
       job.finishedAt = new Date().toISOString();
-      const head = getSafe(name)?.git ? await headInfo(getSite(name)) : null;
+      const head = getSafe(name)?.git ? await headInfo(getSite(name)).catch(() => null) : null;
       config.update((c) => {
         const s = c.sites[name];
         if (!s?.git) return;
@@ -412,9 +444,22 @@ export function deploy(name, { reason = 'manual', pull = true, resolve = null } 
           s.git.behind = 0;
         }
       });
+      if (getSafe(name)) {
+        try {
+          history.add(
+            name,
+            { id: job.id, kind: job.kind, reason, by, at: job.startedAt, finishedAt: job.finishedAt, durationMs: Date.parse(job.finishedAt) - Date.parse(job.startedAt), ok: job.ok, error: job.error, commit: job.kind === 'deploy' ? head : null, from: job.from, ref, snapshot: job.snapshot },
+            job.log.text(),
+          );
+        } catch (err) {
+          console.error('[history]', err.message);
+        }
+        if (by !== 'you') activity.record({ action: job.ok ? 'Deployed' : 'Deploy failed', site: name, detail: job.ok ? (head ? `${head.hash} ${head.subject}` : reason) : job.error, ok: !!job.ok, by });
+      }
+      job.running = false;
       if (job.again) {
         job.again = false;
-        setTimeout(() => deploy(name, { reason: 'queued' }), 500);
+        setTimeout(() => deploy(name, { reason: 'queued', by: 'system' }), 500);
       }
     }
   })();
@@ -469,7 +514,7 @@ export async function handleHook(req, res) {
       if (ref && ref !== `refs/heads/${site.git.branch}`) return sendJson(res, 200, { ok: true, skipped: `push to ${ref}` });
     } catch {}
   }
-  deploy(name, { reason: event ? `GitHub ${event}` : 'GitHub Actions' });
+  deploy(name, { reason: event ? `GitHub ${event}` : 'GitHub Actions', by: 'GitHub' });
   sendJson(res, 202, { ok: true, message: 'Deploy started' });
 }
 
@@ -521,7 +566,7 @@ export function startAutoUpdates() {
       if (Date.now() - last < g.interval * 60_000) continue;
       try {
         const r = await checkForUpdates(site.name);
-        if (!r.upToDate) deploy(site.name, { reason: 'auto-update' });
+        if (!r.upToDate) deploy(site.name, { reason: 'auto-update', by: 'auto-update' });
       } catch (err) {
         console.error(`[auto-update] ${site.name}: ${err.message}`);
       }

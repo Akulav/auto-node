@@ -83,6 +83,7 @@ const commands = {
     export [file] [--with-files]
                   Back up all settings (and website files)
     import <file> Restore a backup made by "export" or the dashboard
+    https on|off  Use HTTPS for the dashboard (self-signed certificate)
     logs          Follow AutoNode's own logs
     version       Print the version
 `);
@@ -251,6 +252,21 @@ WantedBy=multi-user.target
     } finally {
       if (!config.DEV) sh('systemctl', ['start', 'autonode']);
     }
+  },
+
+  /** Turn the dashboard's HTTPS on/off from the server (handy if a browser refuses the certificate). */
+  async https() {
+    requireRoot();
+    const mode = args.find((a) => !a.startsWith('--'));
+    if (!['on', 'off'].includes(mode)) {
+      console.error('Usage: sudo autonode https on|off');
+      process.exit(1);
+    }
+    config.load();
+    if (mode === 'on') await (await import('../src/dashtls.js')).ensureCert();
+    config.update((c) => (c.dashboard.https = mode === 'on'));
+    if (!config.DEV) sh('systemctl', ['restart', 'autonode']);
+    console.log(c.green(`✓ Dashboard is now ${mode === 'on' ? 'https' : 'http'}://${lanIp()}:${config.get().dashboard.port}`));
   },
 
   logs() {

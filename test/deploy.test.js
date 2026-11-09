@@ -162,6 +162,39 @@ test('a symlink the repo puts over a locked file is replaced, never written thro
   assert.equal(read('db.sqlite'), 'LIVE DATA');
 });
 
+test('history, automatic snapshots, redeploying an old commit and rolling back', { skip: !HAS_GIT && 'git not installed' }, async () => {
+  const history = await import('../src/history.js');
+  const snapshots = await import('../src/snapshots.js');
+  push({ 'server.js': 'hist-A' }, 'version A');
+  let j = await runDeploy();
+  assert.equal(j.ok, true, j.log);
+  const commitA = history.list('app')[0].commit.hash;
+  push({ 'server.js': 'hist-B' }, 'version B');
+  j = await runDeploy();
+  assert.equal(j.ok, true, j.log);
+  assert.equal(read('server.js'), 'hist-B');
+
+  const [latest] = history.list('app');
+  assert.equal(latest.ok, true);
+  assert.equal(latest.commit.subject, 'version B');
+  assert.equal(latest.from.hash, commitA, 'records which version it replaced');
+  assert.ok(latest.snapshot, 'a snapshot was taken before deploying');
+  assert.match(history.log('app', latest.id), /Snapshot saved/);
+
+  // Redeploy an older commit: code goes back, automatic updates pause.
+  config.update((c) => (c.sites.app.git.autoUpdate = true));
+  j = await runDeploy({ ref: commitA });
+  assert.equal(j.ok, true, j.log);
+  assert.equal(read('server.js'), 'hist-A');
+  assert.equal(sites.getSite('app').git.autoUpdate, false);
+  assert.throws(() => deploy.deploy('app', { ref: 'not-a-hash' }), /commit id/);
+
+  // Roll back to the snapshot taken before "version B": files are as they were then.
+  await snapshots.restore('app', latest.snapshot);
+  assert.equal(read('server.js'), 'hist-A');
+  assert.equal(read('db.sqlite'), 'LIVE DATA', 'locked file survives the rollback');
+});
+
 test('identical content never pauses; manual folder locks protect whole folders', { skip: !HAS_GIT && 'git not installed' }, async () => {
   write(sites.siteDir('app'), 'same.txt', 'same');
   push({ 'same.txt': 'same' }, 'same content');

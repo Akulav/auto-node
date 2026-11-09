@@ -29,10 +29,19 @@ Made with ♥ by **Akulav**
 | **HTTPS** | Paste a Cloudflare Origin Certificate, or let AutoNode create one automatically. Built-in reverse proxy with SNI, WebSockets and HTTP → HTTPS redirects. |
 | **GitHub deploys** | Connect a repo (public or private), check for new commits, deploy with one click, auto-update on a schedule, or deploy instantly via webhook or a ready-made GitHub Actions workflow. |
 | **Safe updates** | Updates never silently overwrite data your website saved. Files your site creates are always kept; if an update would replace a file the site changed, it pauses and asks. Lock files, folders or patterns (`db.sqlite`, `data/`, `*.sqlite`) so updates never touch them. |
+| **Data folder** | Every website gets `process.env.DATA_DIR`, a folder for databases and uploads that deploys, rollbacks and cleanups never touch. Browse it in the Files tab; it's included in full backups. |
+| **Rollback & history** | A snapshot before every GitHub deploy, with one-click **Roll back** / **Undo**. Deploy history shows every deploy (commit, who, how long, full log) with **Redeploy** for any earlier version. |
+| **Health checks & limits** | AutoNode pings each site and restarts it if it stops answering, even when the process still looks alive. Optional memory cap per site so one leaking app can't slow the others. |
+| **Visitor stats** | Visitors, requests, errors, bandwidth and top pages per site, counted by the proxy. No cookies, no tracking scripts, no IP addresses stored; bots counted separately. |
+| **Traffic rules** | `www` ↔ apex handling, custom redirects (`/old` → `/new`, `/blog/*` → `/news/*`), maintenance mode with a "Back soon" page, and password protection for staging or private sites. |
+| **Scheduled tasks** | Cron-style jobs per site (`0 3 * * *`, `@daily`…), run as the site user with its environment, with output and history for every run. |
+| **Disk usage** | See how much each site uses (code, packages, git, data, snapshots) and clean or reinstall `node_modules` in one click. |
+| **Automatic backups** | Nightly full backups, keeping the last N, optionally copied to another disk or network share. Download or restore any of them from Settings. |
+| **Activity log** | Who did what, and when: dashboard changes, deploys, health-check restarts, backups, tasks and sign-ins (including failed ones). |
 | **Network** | See your IP, router and DNS. Switch to a fixed (static) IP from the dashboard — NetworkManager and netplan supported. |
 | **Backup & restore** | Export all settings (websites, domains, env vars, certificates, Cloudflare) as one `.json`, or everything including website files as a `.tar.gz`. Import on any machine to restore or migrate — with a preview before anything changes. |
 | **Self-updating** | AutoNode checks its own repository and updates itself (optionally automatically). |
-| **Safe by default** | Password-protected, LAN-only dashboard. Websites run as an unprivileged `autonode` user with systemd hardening. |
+| **Safe by default** | Password-protected, LAN-only dashboard, with optional HTTPS on the same port. Websites run as an unprivileged `autonode` user with systemd hardening. |
 
 ## Requirements
 
@@ -90,6 +99,7 @@ Your app only needs to listen on `process.env.PORT`.
 | `sudo autonode update` | Update AutoNode now |
 | `sudo autonode export [file] [--with-files]` | Back up settings (and website files with `--with-files`) |
 | `sudo autonode import <file> [--keep-settings]` | Restore a backup from the CLI or the dashboard |
+| `sudo autonode https on\|off` | Turn HTTPS for the dashboard on or off (use `off` if a browser locks you out) |
 | `autonode logs` | Follow AutoNode's own logs |
 | `autonode dev` | Run the dashboard locally in dev mode |
 
@@ -128,6 +138,13 @@ Everything AutoNode stores lives in two folders:
   env/              environment variables for each website
 /var/lib/autonode/
   sites/<name>/     each website's files
+  sitedata/<name>/  each website's DATA_DIR (databases, uploads)
+  snapshots/        rollback copies, newest 5 per site (root only)
+  history/          deploy history and logs (root only)
+  backups/          automatic and manual full backups (root only)
+  visitors/         visitor stats per site (root only, no IP addresses)
+  tasks/            scheduled task output (root only)
+  activity.log      activity log (root only)
   run/              generated start scripts
   home/             npm cache for the site user
 /etc/systemd/system/autonode-site-<name>.service   one service per website

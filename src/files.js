@@ -2,16 +2,29 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { siteDir, fixOwnership, getSite } from './sites.js';
+import { siteDir, siteDataDir, fixOwnership, getSite } from './sites.js';
 import { HttpError, run, which } from './util.js';
 
 const MAX_EDIT = 2 * 1024 * 1024;
 const HIDDEN_HEAVY = new Set(['node_modules', '.git']);
 
+/**
+ * Which folder file operations work in: the website's code folder, or its DATA_DIR.
+ * Site names can't contain "@", so "blog@data" can never collide with a real site.
+ */
+export const scope = (name, area) => (area === 'data' ? `${name}@data` : name);
+
+function rootOf(scoped) {
+  const [name, area] = String(scoped).split('@');
+  getSite(name);
+  const dir = area === 'data' ? siteDataDir(name) : siteDir(name);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 /** Resolve a user-supplied path, refusing anything that escapes the site folder. */
 export function resolveInSite(name, rel = '/') {
-  getSite(name);
-  const root = fs.realpathSync(siteDir(name));
+  const root = fs.realpathSync(rootOf(name));
   const clean = path.posix.normalize('/' + String(rel).replace(/\\/g, '/'));
   const full = path.resolve(root, '.' + clean); // resolve() drops trailing slashes, so "/" === root
   if (full !== root && !full.startsWith(root + path.sep)) throw new HttpError(400, 'Invalid path');

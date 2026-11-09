@@ -7,6 +7,17 @@ import { runner, siteUser, siteEnv } from './runner.js';
 import { run, HttpError, SITE_NAME_RE, HOSTNAME_RE, ENV_KEY_RE, normalizeHostname, isLinux } from './util.js';
 
 export const siteDir = (name) => path.join(config.paths.sitesDir, name);
+export const siteDataDir = (name) => path.join(config.paths.siteDataRoot, name);
+
+/** Create the website's DATA_DIR (owned by the site user, private to it). */
+export async function ensureDataDir(name) {
+  const dir = siteDataDir(name);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o750 });
+    await fixOwnership(dir);
+  }
+  return dir;
+}
 
 export function getSite(name) {
   // hasOwn: names like "__proto__" or "constructor" must not resolve to Object internals.
@@ -76,6 +87,8 @@ export function publicSite(s, status) {
     ...s,
     git: s.git ? { ...s.git, token: s.git.token ? '••••••••' : null, hasToken: !!s.git.token } : null,
     detectedCommand: detectStartCommand(s),
+    dataDir: siteDataDir(s.name),
+    access: s.access ? { enabled: !!s.access.enabled, username: s.access.username || '' } : { enabled: false, username: '' }, // never the password hash
     status: status || { state: 'stopped' },
   };
 }
@@ -104,6 +117,7 @@ export async function createSite({ name, title, template = 'starter' }) {
     c.sites[name] = site;
   });
   await fixOwnership(dir);
+  await ensureDataDir(name);
   return site;
 }
 
@@ -154,6 +168,15 @@ export async function updateSite(name, patch) {
     if (allSites().some((s) => s.name !== name && s.port === p)) throw new HttpError(409, 'Another website already uses that port.');
     next.port = p;
   }
+  if (patch.memoryLimitMB !== undefined) {
+    const mb = patch.memoryLimitMB === null || patch.memoryLimitMB === '' ? null : Number(patch.memoryLimitMB);
+    if (mb !== null && (!Number.isInteger(mb) || mb < 64 || mb > 1048576)) throw new HttpError(400, 'Memory limit must be at least 64 MB (or empty for no limit).');
+    next.memoryLimitMB = mb;
+  }
+  if (patch.health !== undefined) {
+    const { normalize } = await import('./health.js');
+    next.health = normalize(patch.health);
+  }
   if (patch.env != null) {
     const env = {};
     for (const [k, v] of Object.entries(patch.env)) {
@@ -190,6 +213,7 @@ export function removeHostname(name, hostname) {
 
 export async function startSite(name) {
   const site = getSite(name);
+  await ensureDataDir(name);
   await runner().start(site, detectStartCommand(site));
   config.update((c) => {
     c.sites[name].enabled = true;
@@ -212,21 +236,26 @@ export async function deleteSite(name) {
   getSite(name);
   await runner().remove(name);
   fs.rmSync(siteDir(name), { recursive: true, force: true });
+  fs.rmSync(siteDataDir(name), { recursive: true, force: true });
+  for (const d of [config.paths.snapshotsDir, config.paths.historyDir, config.paths.tasksDir]) fs.rmSync(path.join(d, name), { recursive: true, force: true });
+  for (const f of [path.join(config.paths.historyDir, `${name}.json`), path.join(config.paths.visitorsDir, `${name}.json`)]) fs.rmSync(f, { force: true });
   config.update((c) => {
     delete c.sites[name];
   });
 }
 
 /** Run a shell command inside a site folder as the site user, streaming output. */
-export async function runInSite(name, command, onData) {
+export async function runInSite(name, command, onData, { timeoutMs = 30 * 60_000, task = false } = {}) {
   const ids = await siteUser();
   const site = getSite(name);
+  await ensureDataDir(name);
   // Don't hand the root daemon's own environment to website build commands.
   const base = config.DEV ? process.env : { LANG: process.env.LANG || 'C.UTF-8' };
-  const env = { ...base, ...siteEnv(site), NODE_ENV: 'development', npm_config_cache: path.join(config.paths.homeDir, '.npm') };
+  // Builds need devDependencies (development); scheduled tasks run like the live site.
+  const env = { ...base, ...siteEnv(site), ...(task ? {} : { NODE_ENV: 'development' }), npm_config_cache: path.join(config.paths.homeDir, '.npm') };
   if (config.DEV) env.PATH = process.env.PATH;
   onData?.(`$ ${command}\n`);
-  const r = await run(command, [], { cwd: siteDir(name), env, shell: config.DEV ? true : '/bin/sh', uid: ids?.uid, gid: ids?.gid, onData, timeout: 30 * 60_000 });
+  const r = await run(command, [], { cwd: siteDir(name), env, shell: config.DEV ? true : '/bin/sh', uid: ids?.uid, gid: ids?.gid, onData, timeout: timeoutMs });
   if (r.code !== 0) throw new Error(`"${command}" failed (exit code ${r.code}).`);
 }
 

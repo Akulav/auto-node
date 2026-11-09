@@ -25,6 +25,14 @@ export const paths = {
   runDir: path.join(dataDir, 'run'),
   homeDir: path.join(dataDir, 'home'),
   tmpDir: path.join(dataDir, 'tmp'),
+  // Each website's DATA_DIR: never touched by deploys, rollbacks or "clean".
+  siteDataRoot: path.join(dataDir, 'sitedata'),
+  snapshotsDir: path.join(dataDir, 'snapshots'),
+  historyDir: path.join(dataDir, 'history'),
+  backupsDir: path.join(dataDir, 'backups'),
+  visitorsDir: path.join(dataDir, 'visitors'),
+  tasksDir: path.join(dataDir, 'tasks'),
+  activityFile: path.join(dataDir, 'activity.log'),
   unitDir: DEV ? path.join(devRoot, 'systemd') : '/etc/systemd/system',
 };
 
@@ -34,7 +42,9 @@ export const SITE_USER = 'autonode';
 function defaults() {
   return {
     version: 1,
-    dashboard: { port: DEV ? 7070 : 7070, host: '0.0.0.0', allowPublic: false },
+    dashboard: { port: DEV ? 7070 : 7070, host: '0.0.0.0', allowPublic: false, https: false },
+    backups: { enabled: false, time: '03:00', keep: 7, copyTo: '', lastRun: null, lastOk: null, lastError: null, lastFile: null },
+    snapshots: { keep: 5 },
     proxy: { httpPort: DEV ? 8080 : 80, httpsPort: DEV ? 8443 : 443, redirectHttps: true },
     auth: { hash: null, salt: null, setupCode: crypto.randomBytes(4).toString('hex').toUpperCase() },
     sessionSecret: crypto.randomBytes(32).toString('hex'),
@@ -47,12 +57,14 @@ function defaults() {
 let state = null;
 
 function ensureDirs() {
-  for (const d of [paths.configDir, paths.certsDir, paths.envDir, paths.dataDir, paths.sitesDir, paths.runDir, paths.homeDir, paths.tmpDir]) {
-    fs.mkdirSync(d, { recursive: true });
-  }
+  const all = [paths.configDir, paths.certsDir, paths.envDir, paths.dataDir, paths.sitesDir, paths.runDir, paths.homeDir, paths.tmpDir, paths.siteDataRoot];
+  const rootOnly = [paths.snapshotsDir, paths.historyDir, paths.backupsDir, paths.visitorsDir, paths.tasksDir];
+  for (const d of [...all, ...rootOnly]) fs.mkdirSync(d, { recursive: true });
   try {
     fs.chmodSync(paths.configDir, 0o700); // secrets: root only
     fs.chmodSync(paths.tmpDir, 0o700);
+    for (const d of rootOnly) fs.chmodSync(d, 0o700); // snapshots/backups hold site data and keys
+    fs.chmodSync(paths.siteDataRoot, 0o755);
     fs.chmodSync(paths.dataDir, 0o755); // site user must be able to reach sites/ and run/
     fs.chmodSync(paths.runDir, 0o755); // root-owned: readable, not writable, by the site user
   } catch {}

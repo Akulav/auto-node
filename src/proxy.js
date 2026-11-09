@@ -8,7 +8,9 @@ import https from 'node:https';
 import net from 'node:net';
 import * as config from './config.js';
 import * as certs from './certs.js';
-import { allSites, reservedPorts } from './sites.js';
+import { reservedPorts } from './sites.js';
+import * as traffic from './traffic.js';
+import * as visitors from './visitors.js';
 
 let httpServer = null;
 let httpsServer = null;
@@ -23,12 +25,19 @@ function hostOf(req) {
     .toLowerCase();
 }
 
-export { route as routeFor };
+/** Which site answers this hostname (www twins included), or where to redirect. */
 function route(host) {
-  const site = allSites().find((s) => s.hostnames.includes(host)) || null;
+  const r = traffic.resolveHost(host);
   // Never forward the internet to AutoNode's own ports (dashboard, or a loop to the proxy).
-  if (site && reservedPorts().has(site.port)) return null;
-  return site;
+  if (!r || reservedPorts().has(r.site.port)) return null;
+  return r;
+}
+export const routeFor = (host) => route(host)?.site || null;
+
+/** The visitor's real address: Cloudflare's header only when it really came through Cloudflare. */
+function visitorIp(req) {
+  const peer = req.socket.remoteAddress?.replace(/^::ffff:/, '') || '';
+  return isTrustedProxy(peer) && req.headers['cf-connecting-ip'] ? String(req.headers['cf-connecting-ip']) : peer;
 }
 
 function page(res, status, title, text) {
@@ -89,23 +98,80 @@ function handle(secure) {
         else res.destroy();
       });
     }
-    const site = route(host);
-    if (!site) return page(res, 404, 'Nothing here yet', `<b>${host.replace(/[<>&"]/g, '')}</b> isn't connected to a website.`);
-    const viaHttps = isTrustedProxy(req.socket.remoteAddress) && String(req.headers['cf-visitor'] || '').includes('https');
-    if (!secure && config.get().proxy.redirectHttps && certs.hasCertFor(host) && !viaHttps) {
-      const port = config.get().proxy.httpsPort;
-      res.writeHead(301, { Location: `https://${host}${port === 443 ? '' : ':' + port}${req.url}` });
+    const r = route(host);
+    if (!r) return page(res, 404, 'Nothing here yet', `<b>${host.replace(/[<>&"]/g, '')}</b> isn't connected to a website.`);
+    const site = r.site;
+    const ip = visitorIp(req);
+    const viaHttps = secure || (isTrustedProxy(req.socket.remoteAddress) && String(req.headers['cf-visitor'] || '').includes('https'));
+    const httpsPort = config.get().proxy.httpsPort;
+
+    // Visitor stats: counted when the response finishes.
+    let bytes = 0;
+    res.on('finish', () => visitors.record(site.name, { status: res.statusCode, bytes, path: req.url, ip, ua: String(req.headers['user-agent'] || ''), method: req.method }));
+
+    // www.x ↔ x
+    if (r.redirectHost) {
+      res.writeHead(301, { Location: `${viaHttps ? 'https' : 'http'}://${r.redirectHost}${viaHttps && secure && httpsPort !== 443 ? ':' + httpsPort : ''}${req.url}` });
       return res.end();
     }
-    const up = http.request(
-      { host: '127.0.0.1', port: site.port, method: req.method, path: req.url, headers: forwardHeaders(req, secure) },
-      (upRes) => {
-        const headers = { ...upRes.headers };
-        for (const k of HOP) if (k !== 'transfer-encoding') delete headers[k];
-        res.writeHead(upRes.statusCode || 502, headers);
-        upRes.pipe(res);
-      },
-    );
+    if (!secure && config.get().proxy.redirectHttps && certs.hasCertFor(host) && !viaHttps) {
+      res.writeHead(301, { Location: `https://${host}${httpsPort === 443 ? '' : ':' + httpsPort}${req.url}` });
+      return res.end();
+    }
+    // Maintenance mode: visitors get a friendly page (the LAN "Preview" link still reaches the site directly).
+    if (site.maintenance?.enabled) {
+      res.setHeader('Retry-After', '600');
+      res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(traffic.maintenancePage(site));
+    }
+    const forward = () => {
+      let pathname = '/';
+      let search = '';
+      try {
+        const u = new URL(req.url, 'http://x');
+        pathname = u.pathname;
+        search = u.search;
+      } catch {}
+      const redirect = traffic.matchRedirect(site, pathname, search);
+      if (redirect) {
+        res.writeHead(redirect.code, { Location: redirect.location });
+        return res.end();
+      }
+      const up = http.request(
+        { host: '127.0.0.1', port: site.port, method: req.method, path: req.url, headers: forwardHeaders(req, secure) },
+        (upRes) => {
+          const headers = { ...upRes.headers };
+          for (const k of HOP) if (k !== 'transfer-encoding') delete headers[k];
+          res.writeHead(upRes.statusCode || 502, headers);
+          upRes.on('data', (c) => (bytes += c.length));
+          upRes.pipe(res);
+        },
+      );
+      up.setTimeout(10 * 60_000, () => up.destroy(new Error('timeout'))); // idle time; slow reports/exports need more than 2 min
+      up.on('error', () => {
+        if (!res.headersSent) page(res, 502, 'Starting up…', 'This website is not responding right now. If you own it, check that it is running in AutoNode.');
+        else res.destroy();
+      });
+      req.pipe(up);
+    };
+    if (!site.access?.enabled) return forward();
+    // Password protection (HTTP Basic auth; only ever sent over HTTPS when a certificate exists).
+    traffic
+      .checkAccess(site, req.headers.authorization, ip)
+      .then((ok) => {
+        if (ok === true) {
+          delete req.headers.authorization; // the website never sees the visitor password
+          return forward();
+        }
+        req.resume();
+        if (ok === 'locked') return page(res, 429, 'Too many attempts', 'Please wait a few minutes and try again.');
+        res.writeHead(401, { 'WWW-Authenticate': `Basic realm="${String(site.title || site.name).replace(/["\\\r\n]/g, '')}", charset="UTF-8"`, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end('<!doctype html><meta charset="utf-8"><title>Password required</title><p style="font:17px -apple-system,sans-serif;text-align:center;margin-top:20vh">This website is password protected.</p>');
+      })
+      .catch((err) => {
+        console.error('[proxy] access:', err);
+        if (!res.headersSent) page(res, 500, 'Something went wrong', 'Please try again.');
+      });
     up.setTimeout(10 * 60_000, () => up.destroy(new Error('timeout'))); // idle time; slow reports/exports need more than 2 min
     up.on('error', () => {
       if (!res.headersSent) page(res, 502, 'Starting up…', 'This website is not responding right now. If you own it, check that it is running in AutoNode.');
@@ -116,9 +182,15 @@ function handle(secure) {
 }
 
 function handleUpgrade(secure) {
-  return (req, socket, head) => {
-    const site = route(hostOf(req));
-    if (!site) return socket.destroy();
+  return async (req, socket, head) => {
+    const r = route(hostOf(req));
+    if (!r || r.redirectHost || r.site.maintenance?.enabled) return socket.destroy();
+    const site = r.site;
+    if (site.access?.enabled && (await traffic.checkAccess(site, req.headers.authorization, visitorIp(req)).catch(() => false)) !== true) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+      return;
+    }
+    delete req.headers.authorization;
     const up = net.connect(site.port, '127.0.0.1', () => {
       const headers = forwardHeaders(req, secure);
       headers.connection = 'Upgrade';
@@ -153,12 +225,17 @@ function listen(server, port, key) {
 
 /** Public ports: a synchronous throw in a handler would otherwise crash the whole daemon. */
 const guard = (fn) => (req, resOrSocket, head) => {
-  try {
-    return fn(req, resOrSocket, head);
-  } catch (err) {
+  const fail = (err) => {
     console.error('[proxy]', err);
     if (typeof resOrSocket.writeHead === 'function' && !resOrSocket.headersSent) page(resOrSocket, 500, 'Something went wrong', 'Please try again.');
     else resOrSocket.destroy();
+  };
+  try {
+    const r = fn(req, resOrSocket, head);
+    if (r && typeof r.catch === 'function') r.catch(fail); // async handlers too
+    return r;
+  } catch (err) {
+    fail(err);
   }
 };
 
