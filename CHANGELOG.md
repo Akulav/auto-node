@@ -2,6 +2,13 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-11-09
+
+### Added
+
+- **Website icons.** Each website shows its own favicon in the dashboard (website cards, overview list, page header, backup preview) instead of a letter. AutoNode finds it in the site's files (`favicon.ico`/`.svg`/`.png` in the root, `public/`, `static/`, Next.js `app/icon.*`, build folders, or whatever `index.html` links to with `<link rel="icon">`), or asks the running site for `/favicon.ico`. Sites without an icon keep the colored letter.
+  - Safe by design: the file type is detected from the bytes (an HTML 404 page named `favicon.ico` is ignored), icons are capped at 512 KB, symlinks are never followed, and icons are served with a sandboxing Content-Security-Policy so an SVG can't run scripts.
+
 ## [1.1.1] - 2026-11-09
 
 ### Security

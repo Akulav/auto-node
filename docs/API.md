@@ -26,6 +26,7 @@ The dashboard talks to AutoNode over a small JSON API on port `7070`. All routes
 | GET | `/api/sites` | |
 | POST | `/api/sites` | `{ name, title, template: "starter"\|"empty", repo?, branch?, token? }` |
 | GET | `/api/sites/:name` | Includes `status`, `size`, `deploy`, `lanUrl`, `certs` |
+| GET | `/api/sites/:name/icon` | The site's favicon (ICO/PNG/SVG/JPEG/GIF/WebP, sniffed from the bytes), `404` if none. Supports `If-None-Match`. |
 | PATCH | `/api/sites/:name` | `{ title, startCommand, installCommand, buildCommand, port, env }` |
 | DELETE | `/api/sites/:name` | Stops the service and deletes the files |
 | POST | `/api/sites/:name/start` · `/stop` · `/restart` | |

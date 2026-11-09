@@ -17,6 +17,7 @@ import * as proxy from './proxy.js';
 import * as backup from './backup.js';
 import * as uploads from './uploads.js';
 import * as locks from './locks.js';
+import * as icons from './icons.js';
 import crypto from 'node:crypto';
 import { runner, runnerKind, restoreChildren, stopAllChildren } from './runner.js';
 import { HttpError, readJson, readBody, sendJson, normalizeHostname } from './util.js';
@@ -146,6 +147,25 @@ on('GET', '/api/sites/:name', async (req, res, p) => {
 });
 
 on('PATCH', '/api/sites/:name', async (req, res, p, body) => sites.updateSite(p.name, body));
+
+// The website's own favicon, for the dashboard tiles.
+on('GET', '/api/sites/:name/icon', async (req, res, p) => {
+  const icon = await icons.getIcon(p.name);
+  const headers = {
+    'Content-Type': icon.type,
+    'Cache-Control': 'private, no-cache',
+    ETag: icon.etag,
+    // The bytes come from the website: if someone opens an SVG directly, nothing in it may run.
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+  };
+  if (req.headers['if-none-match'] === icon.etag) {
+    res.writeHead(304, headers);
+    return res.end();
+  }
+  res.writeHead(200, { ...headers, 'Content-Length': icon.data.length });
+  res.end(icon.data);
+  return undefined;
+});
 
 on('DELETE', '/api/sites/:name', async (req, res, p) => {
   const s = sites.getSite(p.name);

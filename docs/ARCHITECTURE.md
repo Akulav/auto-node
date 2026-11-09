@@ -41,6 +41,7 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/files.js` | Path-confined file operations, unzip, placing finished uploads |
 | `src/uploads.js` | Chunked, resumable uploads (idempotent pieces at byte offsets, free-space check, stale cleanup) |
 | `src/deploy.js` | Git connect/check/deploy, auto-update loop, webhook verification, workflow generator |
+| `src/icons.js` | Finds each website's favicon (files, `index.html` links, then the live site) with byte-level type detection |
 | `src/locks.js` | Locked files: patterns that GitHub updates never modify or delete |
 | `src/network.js` | Interface info, static IP via `nmcli` or netplan |
 | `src/selfupdate.js` | Update AutoNode from its own git checkout |

@@ -333,7 +333,26 @@ const SITE_COLORS = [
   'linear-gradient(135deg,#8e8e93,#48484a)',
 ];
 const siteColor = (name) => SITE_COLORS[[...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % SITE_COLORS.length];
-const siteIcon = (s, size) => h('div', { class: 'site-icon', style: { background: siteColor(s.name), ...(size ? { width: size + 'px', height: size + 'px', borderRadius: size * 0.27 + 'px', fontSize: size * 0.42 + 'px' } : {}) } }, (s.title || s.name)[0]);
+// name -> 'ok' | 'none': remembered for this page, so the 2-second live repaint doesn't re-ask for missing icons.
+const iconState = new Map();
+
+/** The website's own favicon on a tile, falling back to its first letter. */
+function siteIcon(s, size) {
+  const tile = h('div', { class: 'site-icon', style: { background: siteColor(s.name), ...(size ? { width: size + 'px', height: size + 'px', borderRadius: size * 0.27 + 'px', fontSize: size * 0.42 + 'px' } : {}) } }, (s.title || s.name)[0]);
+  if (iconState.get(s.name) === 'none') return tile;
+  const img = h('img', { src: `/api/sites/${encodeURIComponent(s.name)}/icon`, alt: '', draggable: 'false' });
+  img.addEventListener('load', () => {
+    iconState.set(s.name, 'ok');
+    tile.classList.add('has-img');
+  });
+  img.addEventListener('error', () => {
+    iconState.set(s.name, 'none');
+    img.remove();
+  });
+  if (iconState.get(s.name) === 'ok') tile.classList.add('has-img');
+  tile.append(img);
+  return tile;
+}
 
 const STATE_LABEL = { running: ['Running', 'good running'], stopped: ['Stopped', ''], starting: ['Starting…', 'info'], crashed: ['Crashed', 'bad'] };
 const statusPill = (st) => {
