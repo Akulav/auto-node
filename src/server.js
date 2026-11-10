@@ -24,11 +24,11 @@ import * as health from './health.js';
 import * as visitors from './visitors.js';
 import * as tasks from './tasks.js';
 import * as dashtls from './dashtls.js';
+import * as settings from './settings.js';
 import https from 'node:https';
 import net from 'node:net';
-import crypto from 'node:crypto';
 import { runner, runnerKind, restoreChildren, stopAllChildren } from './runner.js';
-import { HttpError, readJson, readBody, sendJson, normalizeHostname } from './util.js';
+import { HttpError, readJson, readBody, sendJson, normalizeHostname, lanAddress, clientIp } from './util.js';
 
 const PUBLIC = path.join(config.APP_ROOT, 'public');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
@@ -41,11 +41,6 @@ const on = (method, pattern, handler, { open = false, raw = false } = {}) => {
   const re = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, k) => (keys.push(k), '([^/]+)')) + '/?$');
   routes.push({ method, pattern, re, keys, handler, open, raw });
 };
-
-function lanAddress() {
-  for (const addrs of Object.values(os.networkInterfaces())) for (const a of addrs) if (a.family === 'IPv4' && !a.internal) return a.address;
-  return '127.0.0.1';
-}
 
 function sse(req, res) {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
@@ -63,30 +58,31 @@ async function cloudflareSummary() {
 
 /* ---------------------------------------------------------------- session */
 
-on('GET', '/api/session', async (req) => ({
-  authenticated: auth.isAuthenticated(req),
-  setUp: auth.isSetUp(),
-  version: config.pkg.version,
-  dev: config.DEV,
-  hostname: os.hostname(),
-}), { open: true });
+on('GET', '/api/session', async (req) => {
+  const authenticated = auth.isAuthenticated(req);
+  // With remote access on, strangers can load the sign-in page: tell them nothing about this computer.
+  const insider = authenticated || auth.isPrivateAddress(req.socket.remoteAddress);
+  return { authenticated, setUp: auth.isSetUp(), version: insider ? config.pkg.version : null, dev: config.DEV, hostname: insider ? os.hostname() : null };
+}, { open: true });
 
 on('POST', '/api/setup', async (req, res, p, body) => {
   if (auth.isSetUp()) throw new HttpError(409, 'A password is already set.');
+  if (!auth.isPrivateAddress(req.socket.remoteAddress)) throw new HttpError(403, 'Create the password from a device on your home network.');
   if (!config.DEV && !auth.checkSetupCode(body.code, req.socket.remoteAddress)) throw new HttpError(403, 'That setup code is not right. Run "sudo autonode setup-code" on the server to see it.');
   await auth.setPassword(body.password);
-  activity.record({ action: 'Created the dashboard password', ip: req.socket.remoteAddress?.replace(/^::ffff:/, ''), by: 'you' });
+  activity.record({ action: 'Created the dashboard password', ip: clientIp(req), by: 'you' });
   res.setHeader('Set-Cookie', auth.createSessionCookie(!!req.socket.encrypted));
   return { ok: true };
 }, { open: true });
 
 on('POST', '/api/login', async (req, res, p, body) => {
-  const ip = req.socket.remoteAddress?.replace(/^::ffff:/, '');
+  const ip = clientIp(req);
+  const outside = !auth.isPrivateAddress(ip);
   if (!(await auth.verifyPassword(body.password, req.socket.remoteAddress))) {
-    activity.record({ action: 'Failed sign-in', ok: false, ip, by: 'someone' });
+    activity.record({ action: outside ? 'Failed sign-in from the internet' : 'Failed sign-in', ok: false, ip, by: 'someone' });
     throw new HttpError(401, 'Wrong password.');
   }
-  activity.record({ action: 'Signed in', ip, by: 'you' });
+  activity.record({ action: outside ? 'Signed in from the internet' : 'Signed in', ip, by: 'you' });
   res.setHeader('Set-Cookie', auth.createSessionCookie(!!req.socket.encrypted));
   return { ok: true };
 }, { open: true });
@@ -95,13 +91,6 @@ on('POST', '/api/logout', async (req, res) => {
   res.setHeader('Set-Cookie', auth.clearSessionCookie());
   return { ok: true };
 }, { open: true });
-
-on('POST', '/api/password', async (req, res, p, body) => {
-  if (!(await auth.verifyPassword(body.current, req.socket.remoteAddress))) throw new HttpError(401, 'Your current password is wrong.');
-  await auth.setPassword(body.next);
-  res.setHeader('Set-Cookie', auth.createSessionCookie(!!req.socket.encrypted));
-  return { ok: true };
-});
 
 /* --------------------------------------------------------------- overview */
 
@@ -183,8 +172,15 @@ on('GET', '/api/sites/:name/icon', async (req, res, p) => {
 
 on('DELETE', '/api/sites/:name', async (req, res, p) => {
   const s = sites.getSite(p.name);
+  if (deploy.jobStatus(s.name).running) throw new HttpError(409, 'Wait for the current deploy to finish first.');
   if (config.get().cloudflare.apiToken) for (const h of s.hostnames) await cf.removeRecord(h).catch(() => {});
-  await sites.deleteSite(p.name);
+  await sites.deleteSite(s.name);
+  // In-memory state must go too, or a new website with the same name would inherit it
+  // (visitor stats would even be written back to disk on the next flush).
+  visitors.forget(s.name);
+  health.forget(s.name);
+  icons.forget(s.name);
+  features.forgetSite(s.name);
   return { ok: true };
 });
 
@@ -358,91 +354,12 @@ on('POST', '/api/cloudflare/strict', async (req, res, p, body) => (await cf.setS
 on('GET', '/api/network', async () => network.info());
 on('POST', '/api/network', async (req, res, p, body) => network.apply(body));
 
-/* --------------------------------------------------------------- settings */
+/* ------------------------------------- settings page & per-website extras */
 
-on('GET', '/api/settings', async () => {
-  const c = config.get();
-  return { selfUpdateAuto: c.selfUpdate.auto, lastCheck: c.selfUpdate.lastCheck, redirectHttps: c.proxy.redirectHttps, dashboardPort: c.dashboard.port, dashboardHttps: !!c.dashboard.https, dashboardCert: dashtls.info(), snapshotsKeep: c.snapshots.keep, proxy: proxy.status, version: config.pkg.version, gitInstall: selfupdate.isGitInstall(), runner: runnerKind(), node: process.version, paths: config.paths };
-});
-on('PATCH', '/api/settings', async (req, res, p, body) => {
-  if (body.dashboardHttps === true) await dashtls.ensureCert(); // fail before switching if openssl is missing
-  config.update((c) => {
-    if (body.selfUpdateAuto != null) c.selfUpdate.auto = !!body.selfUpdateAuto;
-    if (body.redirectHttps != null) c.proxy.redirectHttps = !!body.redirectHttps;
-    if (body.dashboardHttps != null) c.dashboard.https = !!body.dashboardHttps;
-  });
-  const port = config.get().dashboard.port;
-  const host = String(req.headers.host || `${lanAddress()}:${port}`);
-  return { ok: true, url: body.dashboardHttps != null ? `${body.dashboardHttps ? 'https' : 'http'}://${host}/#/settings` : undefined };
-});
-/* ----------------------------------------------------------------- backup */
-
-const pendingImports = new Map(); // token -> { file, at }
-
-on('GET', '/api/backup', async (req, res) => {
-  const withFiles = q(req).get('files') === '1';
-  const name = backup.exportFilename(withFiles);
-  if (!withFiles) {
-    const body = JSON.stringify(backup.buildManifest(), null, 2);
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' });
-    res.end(body);
-    return undefined;
-  }
-  res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Disposition': `attachment; filename="${name}"`, 'Cache-Control': 'no-store' });
-  await backup.streamFullExport(res);
-  return undefined;
-});
-on('PUT', '/api/backup/upload', async (req) => {
-  for (const [t, p] of pendingImports) if (Date.now() - p.at > 30 * 60_000) (fs.rmSync(p.file, { force: true }), pendingImports.delete(t));
-  const file = await backup.receive(req);
-  try {
-    const summary = await backup.inspect(file);
-    const token = crypto.randomUUID();
-    pendingImports.set(token, { file, at: Date.now() });
-    return { token, summary };
-  } catch (err) {
-    fs.rmSync(file, { force: true });
-    throw err;
-  }
-}, { raw: true });
-on('POST', '/api/backup/upload-complete', async (req, res, p, body) => {
-  const tmp = uploads.take(body.id, body.total);
-  const file = path.join(config.paths.tmpDir, `upload-${body.id}.bin`);
-  uploads.moveFile(tmp, file);
-  try {
-    const summary = await backup.inspect(file);
-    const token = crypto.randomUUID();
-    pendingImports.set(token, { file, at: Date.now() });
-    return { token, summary };
-  } catch (err) {
-    fs.rmSync(file, { force: true });
-    throw err;
-  }
-});
-/** Validate a backup file and park it for POST /api/backup/restore. */
-async function stageBackup(file) {
-  try {
-    const summary = await backup.inspect(file);
-    const token = crypto.randomUUID();
-    pendingImports.set(token, { file, at: Date.now() });
-    return { token, summary };
-  } catch (err) {
-    fs.rmSync(file, { force: true });
-    throw err;
-  }
-}
-features.register(on, { q, stageBackup });
-
-on('POST', '/api/backup/restore', async (req, res, p, body) => {
-  const pending = pendingImports.get(body.token);
-  if (!pending) throw new HttpError(410, 'That upload expired. Please choose the file again.');
-  pendingImports.delete(body.token);
-  const report = await backup.restore(pending.file, { settings: body.settings !== false });
-  return report;
-});
-
-on('GET', '/api/update', async () => selfupdate.check());
-on('POST', '/api/update', async () => selfupdate.apply());
+// Settings tabs: updates, web server, backups, export & import, security, remote access.
+settings.register(on, { q });
+// Snapshots, history, health, traffic, visitors, tasks, disk usage, activity.
+features.register(on, { q });
 
 /* ----------------------------------------------------------------- server */
 
@@ -463,16 +380,22 @@ function serveStatic(req, res, url) {
   });
 }
 
-async function handler(req, res) {
+/** Every dashboard request (exported for tests). */
+export async function handler(req, res) {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'");
 
-  const remote = req.socket.remoteAddress || '';
-  if (!config.get().dashboard.allowPublic && !auth.isPrivateAddress(remote)) {
-    res.writeHead(403, { 'Content-Type': 'text/plain' });
-    return res.end('AutoNode is only available on your local network.');
+  const outside = !auth.isPrivateAddress(req.socket.remoteAddress);
+  if (outside) {
+    const d = config.get().dashboard;
+    // Remote access only ever works encrypted; without it the internet sees nothing but this line.
+    if (!d.allowPublic || !req.socket.encrypted) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end(d.allowPublic ? 'Use https:// to open AutoNode from outside your home network.' : 'AutoNode is only available on your local network.');
+    }
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   }
 
   let url;
@@ -484,10 +407,12 @@ async function handler(req, res) {
   if (url.pathname.startsWith('/.autonode/deploy/')) return deploy.handleHook(req, res);
   if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url);
 
-  // CSRF: mutating requests must come from this page.
-  if (req.method !== 'GET' && req.headers.origin) {
-    const origin = req.headers.origin.replace(/^https?:\/\//, '');
-    if (origin !== req.headers.host) return sendJson(res, 403, { error: 'Cross-site request blocked.' });
+  // CSRF: mutating requests must come from this page (Origin, or Sec-Fetch-Site when a browser omits Origin).
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const origin = req.headers.origin;
+    if (origin && origin.replace(/^https?:\/\//, '') !== req.headers.host) return sendJson(res, 403, { error: 'Cross-site request blocked.' });
+    const site = req.headers['sec-fetch-site'];
+    if (!origin && site && site !== 'same-origin' && site !== 'none') return sendJson(res, 403, { error: 'Cross-site request blocked.' });
   }
 
   for (const r of routes) {

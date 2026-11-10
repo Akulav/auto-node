@@ -6,11 +6,12 @@ The dashboard talks to AutoNode over a small JSON API on port `7070`. All routes
 
 | Method | Path | Body | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/session` | | `{ authenticated, setUp, version, dev, hostname }` |
-| POST | `/api/setup` | `{ code, password }` | First run only |
-| POST | `/api/login` | `{ password }` | Sets the cookie |
+| GET | `/api/session` | | `{ authenticated, setUp, version, dev, hostname }` (`version`/`hostname` are `null` for signed-out visitors from outside the home network) |
+| POST | `/api/setup` | `{ code, password }` | First run only, home network only |
+| POST | `/api/login` | `{ password }` | Sets the cookie. Wrong passwords lock the address for 1 min (5 tries), 15 min (10), 1 h (20+); 30 wrong tries from the internet in 15 min pause outside sign-ins for 15 min |
 | POST | `/api/logout` | | |
 | POST | `/api/password` | `{ current, next }` | Signs out other sessions |
+| POST | `/api/sessions/revoke` | | Sign out everywhere, including this device |
 
 ## Overview & live data
 
@@ -166,17 +167,24 @@ File routes accept `?area=data` to work in the site's DATA_DIR instead of its co
 | GET / DELETE | `/api/backups/:file` | | Download / delete one |
 | POST | `/api/backups/:file/prepare` | | Stage for `POST /api/backup/restore` → `{ token, summary }` |
 | GET | `/api/activity?limit=&site=&before=` | | Newest first |
-| PATCH | `/api/settings` | `{ dashboardHttps }` | Returns the new `url` |
-| GET | `/api/dashboard-cert` | | The dashboard certificate, to install as trusted |
-| POST | `/api/dashboard-cert/regenerate` | | New certificate (e.g. after the IP changed) |
 
-## Network & settings
+## Network
 
 | Method | Path | Body |
 | --- | --- | --- |
 | GET | `/api/network` | Interfaces, address, router, DNS, mode, backend |
 | POST | `/api/network` | `{ mode: "dhcp"\|"static", interface, address, prefix, gateway, dns }` |
-| GET | `/api/settings` | |
-| PATCH | `/api/settings` | `{ selfUpdateAuto?, redirectHttps? }` |
-| GET | `/api/update` | Check for AutoNode updates |
-| POST | `/api/update` | Update and restart |
+
+## Settings page (`src/settings.js`)
+
+| Method | Path | Body | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/settings` | | Version, update, web server, snapshot, HTTPS and remote-access state |
+| PATCH | `/api/settings` | `{ selfUpdateAuto?, redirectHttps?, dashboardHttps? }` | With `dashboardHttps` returns the new `url`; turning HTTPS off also turns remote access off (`remoteTurnedOff`) |
+| PATCH | `/api/snapshots` | `{ keep }` | Snapshots kept per website (1–50) |
+| GET | `/api/update` | | Check for AutoNode updates |
+| POST | `/api/update` | | Update and restart |
+| GET | `/api/remote-access` | | `{ enabled, https, port, lanIp, publicIp }` |
+| PATCH | `/api/remote-access` | `{ enabled }` | Needs dashboard HTTPS. Outside visitors are refused over plain HTTP |
+| GET | `/api/dashboard-cert` | | The dashboard certificate, to install as trusted |
+| POST | `/api/dashboard-cert/regenerate` | | New certificate (e.g. after the IP changed) |

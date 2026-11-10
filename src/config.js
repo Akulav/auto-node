@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { isLinux } from './util.js';
+import { isLinux, writeFileAtomic } from './util.js';
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const pkg = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'package.json'), 'utf8'));
@@ -70,25 +70,66 @@ function ensureDirs() {
   } catch {}
 }
 
+const isPlain = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
 function merge(base, over) {
   for (const [k, v] of Object.entries(over || {})) {
-    if (v && typeof v === 'object' && !Array.isArray(v) && base[k] && typeof base[k] === 'object' && k !== 'sites') {
-      base[k] = merge({ ...base[k] }, v);
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+    if (isPlain(base[k]) && k !== 'sites') {
+      // A section like "dashboard" must stay an object even if the file has null or a string there.
+      if (isPlain(v)) base[k] = merge({ ...base[k] }, v);
     } else base[k] = v;
   }
   return base;
 }
 
+/** The previous good config, kept next to it; used if config.json is ever damaged. */
+const backupFile = () => paths.configFile + '.bak';
+
+function readConfig(file) {
+  const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) throw new Error('not a settings object');
+  return saved;
+}
+
+/** Repair values a hand edit or an old version could have left in a shape the code doesn't expect. */
+function sanitize(s) {
+  if (!s.sites || typeof s.sites !== 'object' || Array.isArray(s.sites)) s.sites = {};
+  for (const [name, site] of Object.entries(s.sites)) {
+    if (!site || typeof site !== 'object' || site.name !== name) {
+      console.error(`[config] Ignoring a damaged website entry "${name}".`);
+      delete s.sites[name];
+      continue;
+    }
+    if (!Array.isArray(site.hostnames)) site.hostnames = [];
+    if (!site.env || typeof site.env !== 'object' || Array.isArray(site.env)) site.env = {};
+  }
+  if (typeof s.sessionSecret !== 'string' || s.sessionSecret.length < 32) s.sessionSecret = crypto.randomBytes(32).toString('hex');
+  s.dashboard.allowPublic = !!s.dashboard.allowPublic;
+  return s;
+}
+
 export function load() {
   ensureDirs();
   let saved = {};
+  let recovered = false;
   try {
-    saved = JSON.parse(fs.readFileSync(paths.configFile, 'utf8'));
+    saved = readConfig(paths.configFile);
   } catch (err) {
-    if (err.code !== 'ENOENT') throw new Error(`Could not read ${paths.configFile}: ${err.message}`);
+    if (err.code !== 'ENOENT') {
+      // A damaged file (power cut during a write on an old version, a bad hand edit): fall back to the last good copy.
+      try {
+        saved = readConfig(backupFile());
+        recovered = true;
+        fs.copyFileSync(paths.configFile, `${paths.configFile}.damaged-${Date.now()}`);
+        console.error(`[config] ${paths.configFile} could not be read (${err.message}). Restored the last good copy; the damaged file was kept next to it.`);
+      } catch {
+        throw new Error(`Could not read ${paths.configFile}: ${err.message}`);
+      }
+    }
   }
-  state = merge(defaults(), saved);
-  if (!fs.existsSync(paths.configFile)) save();
+  state = sanitize(merge(defaults(), saved));
+  if (recovered || !fs.existsSync(paths.configFile)) save();
   return state;
 }
 
@@ -97,15 +138,32 @@ export function get() {
 }
 
 export function save() {
-  const tmp = paths.configFile + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, paths.configFile);
+  const json = JSON.stringify(state, null, 2);
+  // Keep the current file as the "last good" copy before replacing it.
+  try {
+    if (fs.existsSync(paths.configFile)) {
+      readConfig(paths.configFile); // only a file that parses is worth keeping
+      fs.copyFileSync(paths.configFile, backupFile());
+      fs.chmodSync(backupFile(), 0o600);
+    }
+  } catch {}
+  writeFileAtomic(paths.configFile, json, { mode: 0o600 });
 }
 
-/** Mutate config through a callback and persist. */
+/**
+ * Mutate config through a callback and persist. If the callback throws, or the
+ * file can't be written, nothing changes in memory either.
+ */
 export function update(fn) {
   const s = get();
-  const r = fn(s);
-  save();
-  return r;
+  const before = structuredClone(s);
+  try {
+    const r = fn(s);
+    save();
+    return r;
+  } catch (err) {
+    state = before;
+    if (err.code === 'ENOSPC') throw Object.assign(new Error('The disk is full, so the change could not be saved. Free up some space and try again.'), { status: 507 });
+    throw err;
+  }
 }

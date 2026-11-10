@@ -1,370 +1,10 @@
 /* AutoNode web app — made by Akulav. No build step, no dependencies. */
-
-/* =========================================================== helpers */
-
-function h(tag, props, ...kids) {
-  const el = tag === 'svg' || props?.svg ? document.createElementNS('http://www.w3.org/2000/svg', tag) : document.createElement(tag);
-  for (const [k, v] of Object.entries(props || {})) {
-    if (v == null || v === false || k === 'svg') continue;
-    if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (k === 'class') el.setAttribute('class', v);
-    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
-    else if (k === 'value' && 'value' in el) el.value = v;
-    else if (k === 'checked' || k === 'disabled' || k === 'selected' || k === 'open') el[k] = !!v;
-    else if (k === 'ref') v(el);
-    else el.setAttribute(k, v === true ? '' : v);
-  }
-  append(el, kids);
-  return el;
-}
-function append(el, kids) {
-  for (const k of kids.flat(Infinity)) {
-    if (k == null || k === false || k === true) continue;
-    el.append(k instanceof Node ? k : document.createTextNode(String(k)));
-  }
-  return el;
-}
-const clear = (el) => {
-  while (el.firstChild) el.removeChild(el.firstChild);
-  return el;
-};
-
-const ICONS = {
-  home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
-  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/>',
-  sites: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M7 6.5h.01M10 6.5h.01"/>',
-  cloud: '<path d="M7 18a4.5 4.5 0 0 1-.5-8.97A6 6 0 0 1 18 8.5a4.5 4.5 0 0 1-.5 9.5z"/>',
-  wifi: '<path d="M2 8.8a15 15 0 0 1 20 0M5 12.4a10 10 0 0 1 14 0M8.5 15.9a5 5 0 0 1 7 0"/><circle cx="12" cy="19" r="1"/>',
-  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
-  play: '<path d="M7 4.5v15l13-7.5z" fill="currentColor"/>',
-  stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>',
-  restart: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
-  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" fill="currentColor" stroke="none"/>',
-  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
-  upload: '<path d="M12 16V4M7 9l5-5 5 5M5 20h14"/>',
-  download: '<path d="M12 4v12M7 11l5 5 5-5M5 20h14"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
-  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
-  ext: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
-  chev: '<path d="m9 6 6 6-6 6"/>',
-  back: '<path d="m15 6-6 6 6 6"/>',
-  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
-  check: '<path d="m5 12 5 5 9-10"/>',
-  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
-  warn: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
-  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
-  unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
-  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-  heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
-  box: '<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>',
-  shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
-  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
-  disk: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
-  github: '<path fill="currentColor" stroke="none" d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.4 1.1 2.9.8.1-.6.4-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-5a3.9 3.9 0 0 1 1-2.7c-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.6 9.6 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7a3.9 3.9 0 0 1 1 2.7c0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9V21c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/>',
-  terminal: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/>',
-  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
-  logout: '<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H3"/>',
-  zip: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M11 5h2M11 8h2M11 11h2M10 14h4v3h-4z"/>',
-  dots: '<circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/>',
-};
-function icon(name, cls) {
-  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  s.setAttribute('viewBox', '0 0 24 24');
-  s.setAttribute('fill', 'none');
-  s.setAttribute('stroke', 'currentColor');
-  s.setAttribute('stroke-width', '1.8');
-  s.setAttribute('stroke-linecap', 'round');
-  s.setAttribute('stroke-linejoin', 'round');
-  s.setAttribute('aria-hidden', 'true');
-  // Default to text size; CSS (nav, buttons, tiles) overrides where a fixed size is wanted.
-  s.setAttribute('width', '1.15em');
-  s.setAttribute('height', '1.15em');
-  if (cls) s.setAttribute('class', cls);
-  s.innerHTML = ICONS[name] || '';
-  return s;
-}
-
-const fmtBytes = (n, d = 1) => {
-  if (n == null || !Number.isFinite(n)) return '—';
-  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  while (n >= 1000 && i < u.length - 1) (n /= 1024), i++;
-  return `${n.toFixed(i === 0 ? 0 : n < 10 ? d : 0)} ${u[i]}`;
-};
-const fmtPct = (n) => (n == null ? '—' : `${Math.round(n)}%`);
-const fmtDur = (s) => {
-  if (s == null) return '—';
-  s = Math.floor(s);
-  const d = Math.floor(s / 86400),
-    hh = Math.floor((s % 86400) / 3600),
-    m = Math.floor((s % 3600) / 60);
-  if (d) return `${d}d ${hh}h`;
-  if (hh) return `${hh}h ${m}m`;
-  if (m) return `${m}m`;
-  return `${s}s`;
-};
-const fmtAgo = (iso) => {
-  if (!iso) return 'never';
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 45) return 'just now';
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-};
-const level = (pct) => (pct >= 90 ? 'bad' : pct >= 75 ? 'warn' : '');
-
-class ApiError extends Error {}
-async function api(method, url, body, { raw } = {}) {
-  const opts = { method, headers: {} };
-  if (body !== undefined) {
-    if (raw) opts.body = body;
-    else {
-      opts.headers['Content-Type'] = 'application/json';
-      opts.body = JSON.stringify(body);
-    }
-  }
-  let res;
-  try {
-    res = await fetch(url, opts);
-  } catch {
-    throw new ApiError("Can't reach AutoNode. Is the server running?");
-  }
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && !url.startsWith('/api/login') && !url.startsWith('/api/password')) {
-    state.session.authenticated = false;
-    render();
-    throw new ApiError('Please sign in.');
-  }
-  if (!res.ok) throw new ApiError(data.error || `Request failed (${res.status})`);
-  return data;
-}
-
-/* ---- chunked, resumable uploads ---- */
-
-const CHUNK = 8 * 1024 * 1024;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function putChunk(id, offset, total, blob, onProgress) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', `/api/chunk?id=${id}&offset=${offset}&total=${total}`);
-    xhr.timeout = 180_000;
-    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded);
-    const fail = (msg, status = 0) => {
-      const err = new Error(msg);
-      // Retry network errors, timeouts, 408/409/429 and 5xx (except "disk full"); give up on other client errors.
-      err.fatal = status === 507 || (status >= 400 && status < 500 && ![408, 409, 429].includes(status));
-      reject(err);
-    };
-    xhr.onload = () => {
-      let data = {};
-      try {
-        data = JSON.parse(xhr.responseText || '{}');
-      } catch {}
-      if (xhr.status < 300) resolve(data);
-      else fail(data.error || `Upload failed (${xhr.status})`, xhr.status);
-    };
-    xhr.onerror = () => fail('Connection lost');
-    xhr.ontimeout = () => fail('Upload timed out');
-    xhr.send(blob);
-  });
-}
-
-/**
- * Upload a File in 8 MB pieces. Each piece is retried with back-off, and after a
- * failure the upload continues from what the server already has.
- * Returns the upload id to finalise with a "*-complete" endpoint.
- */
-async function uploadResumable(file, { onProgress = () => {}, onRetry = () => {} } = {}) {
-  const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
-  const total = file.size;
-  let offset = 0;
-  let failures = 0;
-  let pending = true; // ensures empty files still send one (empty) piece
-  while (pending || offset < total) {
-    pending = false;
-    const start = offset;
-    const end = Math.min(start + CHUNK, total);
-    try {
-      const r = await putChunk(id, start, total, file.slice(start, end), (n) => onProgress(start + n, total));
-      offset = r.received ?? end;
-      failures = 0;
-      onProgress(offset, total);
-    } catch (err) {
-      if (err.fatal || ++failures > 10) {
-        fetch(`/api/chunk?id=${id}`, { method: 'DELETE' }).catch(() => {});
-        throw err;
-      }
-      onRetry(failures, err);
-      await sleep(Math.min(20_000, 1000 * 2 ** Math.min(failures, 5)));
-      try {
-        offset = (await api('GET', `/api/chunk?id=${id}`)).received;
-      } catch {
-        offset = start;
-      }
-      if (total === 0) pending = true;
-    }
-  }
-  return id;
-}
-
-function toast(msg, kind = '') {
-  const t = h('div', { class: `toast ${kind}` }, msg);
-  document.getElementById('toasts').append(t);
-  setTimeout(() => {
-    t.style.transition = 'opacity .3s';
-    t.style.opacity = '0';
-    setTimeout(() => t.remove(), 300);
-  }, kind === 'bad' ? 6000 : 3200);
-}
-
-/** Wrap an async button action with a spinner and error toast. */
-async function busy(btn, fn) {
-  const old = [...btn.childNodes];
-  btn.disabled = true;
-  clear(btn).append(h('span', { class: 'spin' }));
-  try {
-    return await fn();
-  } catch (err) {
-    toast(err.message, 'bad');
-  } finally {
-    btn.disabled = false;
-    clear(btn).append(...old);
-  }
-}
-
-async function copy(text, what = 'Copied') {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const ta = h('textarea', { style: 'position:fixed;opacity:0' }, text);
-    document.body.append(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-  }
-  toast(`${what} ✓`);
-}
-
-function sheet(build, { wide = false, onClose } = {}) {
-  let closed = false;
-  const close = () => {
-    if (closed) return;
-    closed = true;
-    bd.remove();
-    document.removeEventListener('keydown', esc);
-    onClose?.();
-  };
-  const esc = (e) => e.key === 'Escape' && close();
-  const box = h('div', { class: `sheet ${wide ? 'wide' : ''}`, role: 'dialog', 'aria-modal': 'true' });
-  const bd = h('div', { class: 'backdrop', onmousedown: (e) => e.target === bd && close() }, box);
-  append(box, [build(close)]);
-  document.body.append(bd);
-  document.addEventListener('keydown', esc);
-  setTimeout(() => box.querySelector('input,textarea,select')?.focus(), 30);
-  return close;
-}
-
-function confirmSheet({ title, text, ok = 'Continue', danger = false, typeToConfirm }) {
-  return new Promise((resolve) => {
-    let input;
-    sheet(
-      (close) => {
-        const done = (v) => {
-          resolve(v);
-          close();
-        };
-        const okBtn = h('button', { class: `btn ${danger ? 'danger solid' : 'primary'}`, disabled: !!typeToConfirm, onclick: () => done(true) }, ok);
-        return h(
-          'div',
-          {},
-          h('h2', {}, title),
-          h('p', { class: 'muted' }, text),
-          typeToConfirm &&
-            h(
-              'label',
-              { class: 'field', style: 'margin-top:16px' },
-              h('span', {}, 'Type ', h('b', {}, typeToConfirm), ' to confirm'),
-              (input = h('input', { class: 'input', autocomplete: 'off', oninput: () => (okBtn.disabled = input.value !== typeToConfirm) })),
-            ),
-          h('div', { class: 'sheet-actions' }, h('button', { class: 'btn', onclick: () => done(false) }, 'Cancel'), okBtn),
-        );
-      },
-      { onClose: () => resolve(false) },
-    );
-  });
-}
-
-function promptSheet({ title, text, label, value = '', placeholder = '', ok = 'Save' }) {
-  return new Promise((resolve) => {
-    sheet(
-      (close) => {
-        const input = h('input', { class: 'input', value, placeholder, autocomplete: 'off' });
-        const done = (v) => {
-          resolve(v);
-          close();
-        };
-        return h(
-          'form',
-          { onsubmit: (e) => (e.preventDefault(), input.value.trim() && done(input.value.trim())) },
-          h('h2', {}, title),
-          text && h('p', { class: 'muted' }, text),
-          h('label', { class: 'field', style: 'margin-top:16px' }, label, input),
-          h('div', { class: 'sheet-actions' }, h('button', { class: 'btn', type: 'button', onclick: () => done(null) }, 'Cancel'), h('button', { class: 'btn primary' }, ok)),
-        );
-      },
-      { onClose: () => resolve(null) },
-    );
-  });
-}
-
-const toggle = (checked, onchange, label) =>
-  h('label', { class: 'switch', title: label }, h('input', { type: 'checkbox', checked, 'aria-label': label, onchange: (e) => onchange(e.target.checked, e.target) }), h('span'));
-
-const copyable = (text, label = 'Copied') => h('div', { class: 'copyable' }, h('span', { title: text }, text), h('button', { class: 'btn sm', onclick: () => copy(text, label) }, icon('copy'), 'Copy'));
-
-const codeBlock = (text) => h('div', { class: 'code' }, h('button', { class: 'btn sm copy', onclick: () => copy(text) }, icon('copy'), 'Copy'), text);
-
-const notice = (kind, ...kids) => h('div', { class: `notice ${kind}` }, icon(kind === 'good' ? 'check' : kind === 'info' ? 'info' : 'warn'), h('div', {}, ...kids));
-
-const SITE_COLORS = [
-  'linear-gradient(135deg,#3a8dff,#5e5ce6)',
-  'linear-gradient(135deg,#ff9f0a,#ff375f)',
-  'linear-gradient(135deg,#30d158,#0a9396)',
-  'linear-gradient(135deg,#bf5af2,#5e5ce6)',
-  'linear-gradient(135deg,#64d2ff,#0a84ff)',
-  'linear-gradient(135deg,#ff6482,#bf5af2)',
-  'linear-gradient(135deg,#ffd60a,#ff9f0a)',
-  'linear-gradient(135deg,#8e8e93,#48484a)',
-];
-const siteColor = (name) => SITE_COLORS[[...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % SITE_COLORS.length];
-// name -> 'ok' | 'none': remembered for this page, so the 2-second live repaint doesn't re-ask for missing icons.
-const iconState = new Map();
-
-/** The website's own favicon on a tile, falling back to its first letter. */
-function siteIcon(s, size) {
-  const tile = h('div', { class: 'site-icon', style: { background: siteColor(s.name), ...(size ? { width: size + 'px', height: size + 'px', borderRadius: size * 0.27 + 'px', fontSize: size * 0.42 + 'px' } : {}) } }, (s.title || s.name)[0]);
-  if (iconState.get(s.name) === 'none') return tile;
-  const img = h('img', { src: `/api/sites/${encodeURIComponent(s.name)}/icon`, alt: '', draggable: 'false' });
-  img.addEventListener('load', () => {
-    iconState.set(s.name, 'ok');
-    tile.classList.add('has-img');
-  });
-  img.addEventListener('error', () => {
-    iconState.set(s.name, 'none');
-    img.remove();
-  });
-  if (iconState.get(s.name) === 'ok') tile.classList.add('has-img');
-  tile.append(img);
-  return tile;
-}
-
-const STATE_LABEL = { running: ['Running', 'good running'], stopped: ['Stopped', ''], starting: ['Starting…', 'info'], crashed: ['Crashed', 'bad'] };
-const statusPill = (st) => {
-  const [label, cls] = STATE_LABEL[st?.state] || STATE_LABEL.stopped;
-  return h('span', { class: `pill ${cls}` }, h('span', { class: 'dot' }), label);
-};
+import {
+  h, append, clear, icon, fmtBytes, fmtPct, fmtDur, fmtAgo, fmtNum, level, api, onUnauthorized, sleep, uploadResumable, toast, busy, copy,
+  sheet, confirmSheet, promptSheet, toggle, copyable, codeBlock, notice, siteIcon, STATE_LABEL, statusPill, pageHead, healthLabel,
+} from './ui.js';
+import { settingsView } from './settings.js';
+import { siteSettingsView } from './site-settings.js';
 
 /* ------------------------------------------------------ locked files */
 
@@ -548,6 +188,10 @@ function sparkline({ max = 100, format = fmtPct, label }) {
 /* ============================================================ state */
 
 const state = { session: null, live: null, onLive: null, cleanup: [] };
+onUnauthorized(() => {
+  state.session.authenticated = false;
+  render();
+});
 let stream = null;
 
 function connectStream() {
@@ -579,8 +223,8 @@ function authScreen() {
         if (pw.value !== pw2.value) throw new Error("Passwords don't match.");
         await api('POST', '/api/setup', { code: code?.value, password: pw.value });
       } else await api('POST', '/api/login', { password: pw.value });
-      state.session.authenticated = true;
-      state.session.setUp = true;
+      // Re-read the session: the computer's name and version are only shared once signed in.
+      state.session = await api('GET', '/api/session').catch(() => ({ ...state.session, authenticated: true, setUp: true }));
       render();
     });
   };
@@ -592,7 +236,7 @@ function authScreen() {
       { class: 'box' },
       h('img', { src: '/favicon.svg', alt: 'AutoNode' }),
       h('h1', {}, setup ? 'Welcome to AutoNode' : 'AutoNode'),
-      h('p', {}, setup ? 'Choose a password to protect your server.' : `Sign in to ${s.hostname}`),
+      h('p', {}, setup ? 'Choose a password to protect your server.' : s.hostname ? `Sign in to ${s.hostname}` : 'Sign in to continue'),
       h(
         'form',
         { onsubmit: submit },
@@ -636,14 +280,6 @@ function shell(route, content) {
     h('nav', { class: 'mobile-bar' }, navLinks('mobile')),
   );
 }
-
-const pageHead = (title, { eyebrow, sub, actions, back } = {}) =>
-  h(
-    'div',
-    { class: 'page-head' },
-    h('div', { class: 'grow' }, back && h('a', { class: 'back', href: back[0] }, icon('back'), back[1]), eyebrow && h('div', { class: 'eyebrow' }, eyebrow), h('h1', {}, title), sub && h('div', { class: 'sub' }, sub)),
-    actions && h('div', { class: 'row wrap' }, actions),
-  );
 
 /* ========================================================= overview */
 
@@ -874,7 +510,7 @@ const SITE_TABS = [
   ['settings', 'Settings'],
 ];
 
-async function siteView(name, tab = 'overview') {
+async function siteView(name, tab = 'overview', sub) {
   if (name === 'new') {
     setTimeout(() => newSiteSheet(), 50);
     location.replace('#/sites');
@@ -914,8 +550,8 @@ async function siteView(name, tab = 'overview') {
 
   const body = h('div');
   const tabs = h('div', { class: 'tabs' }, SITE_TABS.map(([id, label]) => h('a', { href: `#/sites/${name}/${id}`, class: id === tab ? 'on' : '' }, label)));
-  const views = { overview: siteOverview, files: siteFiles, logs: siteLogs, visitors: siteVisitors, domains: siteDomainsAndAccess, github: siteDeploys, tasks: siteTasks, settings: siteSettingsPlus };
-  const res = await (views[tab] || siteOverview)(site, (fn) => (tabLive = fn));
+  const views = { overview: siteOverview, files: siteFiles, logs: siteLogs, visitors: siteVisitors, domains: siteDomainsAndAccess, github: siteDeploys, tasks: siteTasks, settings: siteSettingsView };
+  const res = await (views[tab] || siteOverview)(site, (fn) => (tabLive = fn), sub);
   append(body, [res]);
 
   return h(
@@ -938,7 +574,7 @@ function siteOverview(site, onLive) {
         ['Memory', fmtBytes(st.memory)],
         ['CPU', st.cpu != null ? `${st.cpu.toFixed(1)}%` : '—'],
         ['Restarts', st.restarts ?? 0],
-        ['Health check', h('a', { href: `#/sites/${site.name}/settings`, style: `color:${site.health?.state === 'failing' ? 'var(--bad)' : 'inherit'}` }, healthLabel(site.health))],
+        ['Health check', h('a', { href: `#/sites/${site.name}/settings/health`, style: `color:${site.health?.state === 'failing' ? 'var(--bad)' : 'inherit'}` }, healthLabel(site.health))],
       ].flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]),
     );
   };
@@ -1728,75 +1364,6 @@ async function siteGithub(site) {
   return wrap;
 }
 
-/* --------------------------------------------------------- settings */
-
-function siteSettings(site) {
-  let title, start, install, build, port;
-  const envRows = h('div', { class: 'stack tight' });
-  const addEnv = (k = '', v = '') => {
-    const row = h('div', { class: 'env-row' }, h('input', { class: 'input', placeholder: 'NAME', value: k, autocapitalize: 'characters' }), h('input', { class: 'input', placeholder: 'value', value: v }), h('button', { class: 'btn icon ghost', type: 'button', style: 'color:var(--bad);align-self:center', onclick: () => row.remove(), title: 'Remove' }, icon('trash')));
-    envRows.append(row);
-  };
-  Object.entries(site.env || {}).forEach(([k, v]) => addEnv(k, v));
-  const save = async (e) => {
-    e.preventDefault();
-    const env = {};
-    for (const row of envRows.children) {
-      const [k, v] = row.querySelectorAll('input');
-      if (k.value.trim()) env[k.value.trim()] = v.value;
-    }
-    await busy(e.target.querySelector('.primary'), async () => {
-      await api('PATCH', `/api/sites/${site.name}`, { title: title.value, startCommand: start.value, installCommand: install.value, buildCommand: build.value, port: Number(port.value), env });
-      const restart = await confirmSheet({ title: 'Saved ✓', text: 'Restart the website now so the changes take effect?', ok: 'Restart Now' });
-      if (restart) {
-        await api('POST', `/api/sites/${site.name}/restart`);
-        toast('Restarted ✓');
-      }
-    });
-  };
-  return h(
-    'div',
-    { class: 'stack', style: 'gap:18px' },
-    h(
-      'form',
-      { class: 'card pad-lg form', onsubmit: save },
-      h('h2', {}, 'General'),
-      h('div', { class: 'form-grid' }, h('label', { class: 'field' }, 'Display name', (title = h('input', { class: 'input', value: site.title }))), h('label', { class: 'field' }, h('span', {}, 'Internal port ', h('span', { class: 'hint' }, '(given to your app as PORT)')), (port = h('input', { class: 'input', type: 'number', value: site.port, min: 1024, max: 65535 })))),
-      h('h2', { style: 'margin-top:12px' }, 'Commands'),
-      h('p', { class: 'muted small', style: 'margin-top:-8px' }, 'Leave empty and AutoNode figures it out from package.json.'),
-      h('label', { class: 'field' }, 'Start', (start = h('input', { class: 'input mono', value: site.startCommand, placeholder: site.detectedCommand }))),
-      h('div', { class: 'form-grid' }, h('label', { class: 'field' }, 'Install', (install = h('input', { class: 'input mono', value: site.installCommand, placeholder: 'npm ci' }))), h('label', { class: 'field' }, 'Build', (build = h('input', { class: 'input mono', value: site.buildCommand, placeholder: 'npm run build (if present)' })))),
-      h('h2', { style: 'margin-top:12px' }, 'Environment variables'),
-      h('p', { class: 'muted small', style: 'margin-top:-8px' }, 'Secrets like API keys and database URLs. Available to your app as process.env.NAME.'),
-      envRows,
-      h('div', {}, h('button', { class: 'btn sm', type: 'button', onclick: () => addEnv() }, icon('plus'), 'Add Variable')),
-      h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'btn primary' }, 'Save Changes')),
-    ),
-    h(
-      'div',
-      { class: 'card pad-lg', style: 'border-color:var(--bad-soft)' },
-      h('h2', {}, 'Delete website'),
-      h('p', { class: 'muted', style: 'margin:6px 0 16px' }, 'Stops the website and permanently deletes all of its files. This cannot be undone.'),
-      h(
-        'button',
-        {
-          class: 'btn danger',
-          onclick: async (e) => {
-            if (!(await confirmSheet({ title: `Delete ${site.title || site.name}?`, text: 'All files, settings and domains for this website will be removed permanently.', ok: 'Delete Forever', danger: true, typeToConfirm: site.name }))) return;
-            await busy(e.target, async () => {
-              await api('DELETE', `/api/sites/${site.name}`);
-              toast('Website deleted');
-              location.hash = '#/sites';
-            });
-          },
-        },
-        icon('trash'),
-        'Delete Website',
-      ),
-    ),
-  );
-}
-
 /* ========================================================== domains */
 
 async function domainsView() {
@@ -2126,196 +1693,8 @@ async function networkView() {
   );
 }
 
-/* ========================================================= settings */
-
-async function settingsView() {
-  const s = await api('GET', '/api/settings');
-  const updBox = h('div');
-  const check = async (e) =>
-    busy(e.currentTarget, async () => {
-      const r = await api('GET', '/api/update');
-      clear(updBox);
-      if (!r.gitInstall) return updBox.append(notice('warn', 'This copy of AutoNode wasn\'t installed with git, so it can\'t update itself. Re-run the installer to get the latest version.'));
-      if (r.upToDate) return updBox.append(notice('good', h('b', {}, 'AutoNode is up to date. '), `Version ${r.version}.`));
-      updBox.append(
-        h(
-          'div',
-          { class: 'card' },
-          h('div', { class: 'row between wrap', style: 'margin-bottom:10px' }, h('div', {}, h('h3', {}, `Version ${r.latestVersion} is available`), h('p', { class: 'small muted' }, `${r.commits.length} change${r.commits.length === 1 ? '' : 's'} since your version.`)), h('button', { class: 'btn primary', onclick: install }, 'Update Now')),
-          h('div', { class: 'list', style: 'box-shadow:none' }, r.commits.slice(0, 10).map((c) => h('div', { class: 'item' }, h('code', { class: 'muted' }, c.hash), h('div', { class: 'grow ellipsis' }, c.subject), h('span', { class: 'small muted' }, fmtAgo(c.date))))),
-        ),
-      );
-    });
-  const install = async (e) =>
-    busy(e.currentTarget, async () => {
-      await api('POST', '/api/update');
-      sheet(() => h('div', { class: 'center' }, h('span', { class: 'spin', style: 'width:28px;height:28px;margin:8px auto 16px;display:block' }), h('h2', {}, 'Updating AutoNode…'), h('p', { class: 'muted' }, 'Your websites keep running. This page reloads by itself.')));
-      const wait = async () => {
-        try {
-          const r = await fetch('/api/session');
-          if (r.ok) return location.reload();
-        } catch {}
-        setTimeout(wait, 1500);
-      };
-      setTimeout(wait, 3000);
-    });
-
-  const importInput = h('input', { type: 'file', accept: '.json,.gz,.tar.gz,application/json,application/gzip', class: 'hidden', onchange: (e) => e.target.files[0] && importBackup(e.target.files[0]) });
-  async function importBackup(file) {
-    importInput.value = '';
-    const bar = h('i', { style: 'width:0%' });
-    const status = h('p', { class: 'muted' }, `${file.name} · ${fmtBytes(file.size)}`);
-    const wait = sheet(() => h('div', { class: 'center' }, h('h2', { style: 'margin-bottom:8px' }, 'Uploading backup…'), status, h('div', { class: 'progress', style: 'margin-top:16px' }, bar)));
-    let up;
-    try {
-      const id = await uploadResumable(file, {
-        onProgress: (n, t) => {
-          bar.style.width = ((n / Math.max(1, t)) * 100).toFixed(1) + '%';
-          status.textContent = `${file.name} · ${fmtBytes(n)} of ${fmtBytes(t)}`;
-        },
-        onRetry: (a) => (status.textContent = `Connection hiccup — retrying (${a})…`),
-      });
-      status.textContent = 'Reading backup…';
-      up = await api('POST', '/api/backup/upload-complete', { id, total: file.size });
-    } catch (err) {
-      wait();
-      return toast(err.message, 'bad');
-    }
-    wait();
-    showRestore(up);
-  }
-  /** Review a staged backup ({ token, summary }) and restore it. */
-  function showRestore(up) {
-    const sm = up.summary;
-    sheet((close) => {
-      let keepSettings;
-      return h(
-        'div',
-        {},
-        h('h2', {}, 'Restore this backup?'),
-        h('p', { class: 'muted' }, `Made ${new Date(sm.createdAt).toLocaleString()}${sm.hostname ? ` on ${sm.hostname}` : ''} · AutoNode ${sm.autonodeVersion}`),
-        h(
-          'div',
-          { class: 'list', style: 'margin:16px 0;box-shadow:none' },
-          sm.sites.length ? sm.sites.map((s) => h('div', { class: 'item' }, siteIcon(s, 32), h('div', { class: 'grow' }, h('div', { class: 'label' }, s.title || s.name), h('div', { class: 'small muted ellipsis' }, s.hostnames?.join(', ') || 'No domains')))) : h('div', { class: 'item muted' }, 'No websites in this backup.'),
-          h('div', { class: 'item' }, h('div', { class: 'label' }, 'Certificates'), h('div', { class: 'value' }, sm.certificates)),
-          h('div', { class: 'item' }, h('div', { class: 'label' }, 'Cloudflare connection'), h('div', { class: 'value' }, sm.cloudflare ? 'Included' : 'Not included')),
-        ),
-        h('div', { class: 'row' }, (keepSettings = h('input', { type: 'checkbox', id: 'rs', checked: true })), h('label', { for: 'rs' }, 'Also restore Cloudflare and update settings')),
-        notice('warn', 'Websites with the same name on this computer are replaced. Other websites and your password stay as they are.'),
-        h(
-          'div',
-          { class: 'sheet-actions' },
-          h('button', { class: 'btn', onclick: close }, 'Cancel'),
-          h(
-            'button',
-            {
-              class: 'btn primary',
-              onclick: (e) =>
-                busy(e.currentTarget, async () => {
-                  const r = await api('POST', '/api/backup/restore', { token: up.token, settings: keepSettings.checked });
-                  close();
-                  toast(`Restored ${r.sites.length} website${r.sites.length === 1 ? '' : 's'} and ${r.certificates} certificate${r.certificates === 1 ? '' : 's'} ✓${r.warnings.length ? '\n' + r.warnings.join('\n') : ''}`, r.warnings.length ? 'bad' : '');
-                }),
-            },
-            'Restore',
-          ),
-        ),
-      );
-    });
-  }
-
-  let cur, next;
-  return h(
-    'div',
-    { class: 'page' },
-    pageHead('Settings'),
-    h(
-      'div',
-      { class: 'stack', style: 'gap:28px' },
-      h(
-        'div',
-        {},
-        h('h2', { style: 'margin-bottom:12px' }, 'Software Update'),
-        h(
-          'div',
-          { class: 'list' },
-          h('div', { class: 'item' }, h('img', { src: '/favicon.svg', width: 44, height: 44, alt: '' }), h('div', { class: 'grow' }, h('div', { class: 'label' }, `AutoNode ${s.version}`), h('div', { class: 'small muted' }, `Last checked ${fmtAgo(s.lastCheck)}`)), h('button', { class: 'btn', onclick: check }, 'Check for Updates')),
-          h('div', { class: 'item' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Install updates automatically'), h('div', { class: 'small muted' }, 'Checks once a day. Your websites keep running while AutoNode updates.')), toggle(s.selfUpdateAuto, async (v) => (await api('PATCH', '/api/settings', { selfUpdateAuto: v }), toast(v ? 'Automatic updates on' : 'Automatic updates off')), 'Automatic updates')),
-        ),
-        h('div', { style: 'margin-top:12px' }, updBox),
-      ),
-      h(
-        'div',
-        {},
-        h('h2', { style: 'margin-bottom:12px' }, 'Web Server'),
-        h(
-          'div',
-          { class: 'list' },
-          h('div', { class: 'item' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Always use HTTPS'), h('div', { class: 'small muted' }, 'Send visitors to the secure version when a certificate exists.')), toggle(s.redirectHttps, async (v) => (await api('PATCH', '/api/settings', { redirectHttps: v }), toast('Saved ✓')), 'Always use HTTPS')),
-          h('div', { class: 'item' }, h('div', { class: 'label' }, 'Ports'), h('div', { class: 'value' }, `HTTP ${s.proxy.http || '✖'} · HTTPS ${s.proxy.https || '✖'} · Dashboard ${s.dashboardPort}`)),
-          h('div', { class: 'item' }, h('div', { class: 'label' }, 'Websites run with'), h('div', { class: 'value' }, s.runner === 'systemd' ? 'systemd (survive reboots)' : 'Built-in supervisor')),
-          h('div', { class: 'item' }, h('div', { class: 'label' }, 'Node.js'), h('div', { class: 'value' }, s.node)),
-          h('div', { class: 'item' }, h('div', { class: 'label' }, 'Website files'), h('div', { class: 'value mono small ellipsis' }, s.paths.sitesDir)),
-        ),
-      ),
-      h(
-        'div',
-        {},
-        h('h2', { style: 'margin-bottom:4px' }, 'Backup & Restore'),
-        h('p', { class: 'muted small', style: 'margin-bottom:12px' }, 'Move everything to a new computer, or keep a copy somewhere safe. Backups contain your keys and tokens — store them privately.'),
-        h(
-          'div',
-          { class: 'list' },
-          h('div', { class: 'item' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Settings only'), h('div', { class: 'small muted' }, 'Websites, domains, environment variables, certificates and Cloudflare — a small .json file.')), h('a', { class: 'btn', href: '/api/backup' }, icon('download'), 'Export')),
-          h('div', { class: 'item' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Everything'), h('div', { class: 'small muted' }, 'Settings plus all website files, as a .tar.gz. Packages are reinstalled on restore.')), h('a', { class: 'btn', href: '/api/backup?files=1' }, icon('download'), 'Export')),
-          h('div', { class: 'item' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Restore from a backup'), h('div', { class: 'small muted' }, 'Choose a .json or .tar.gz made by AutoNode. You can review it before anything changes.')), h('button', { class: 'btn primary', onclick: () => importInput.click() }, icon('upload'), 'Import…')),
-        ),
-        importInput,
-        h('div', { style: 'margin-top:16px' }, scheduledBackupsCard(showRestore)),
-      ),
-      h(
-        'div',
-        {},
-        h('h2', { style: 'margin-bottom:12px' }, 'Security'),
-        h('div', { style: 'margin-bottom:16px' }, dashboardHttpsCard(s)),
-        h(
-          'form',
-          {
-            class: 'card pad-lg form',
-            onsubmit: async (e) => {
-              e.preventDefault();
-              await busy(e.target.querySelector('.primary'), async () => {
-                await api('POST', '/api/password', { current: cur.value, next: next.value });
-                cur.value = next.value = '';
-                toast('Password changed ✓');
-              });
-            },
-          },
-          h('h3', {}, 'Change password'),
-          h('div', { class: 'form-grid' }, h('label', { class: 'field' }, 'Current password', (cur = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', required: true }))), h('label', { class: 'field' }, 'New password', (next = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', minlength: 8, required: true })))),
-          h('div', { class: 'row' }, h('button', { class: 'btn primary' }, 'Change Password'), h('button', { class: 'btn right', type: 'button', onclick: async () => (await api('POST', '/api/logout'), location.reload()) }, icon('logout'), 'Sign Out')),
-        ),
-        h('p', { class: 'small muted', style: 'margin-top:10px' }, 'The dashboard only answers devices on your home network. Forgot your password? Run ', h('span', { class: 'kbd' }, 'sudo autonode passwd'), ' on the server.'),
-      ),
-      h(
-        'div',
-        { class: 'card pad-lg center' },
-        h('img', { src: '/favicon.svg', width: 72, height: 72, alt: 'AutoNode' }),
-        h('h2', { style: 'margin-top:12px' }, 'AutoNode'),
-        h('p', { class: 'muted' }, `Version ${s.version}`),
-        h('p', { style: 'margin-top:14px' }, 'Made with ♥ by ', h('b', {}, 'Akulav')),
-        h('p', { class: 'small muted', style: 'margin-top:4px' }, h('a', { href: 'https://github.com/Akulav', target: '_blank', rel: 'noopener' }, 'github.com/Akulav')),
-      ),
-    ),
-  );
-}
-
 /* ===================================================== feature views */
 
-const fmtNum = (n) => Number(n || 0).toLocaleString();
-const healthLabel = (hs) =>
-  !hs?.enabled ? 'Off' : hs.state === 'healthy' ? `Healthy${hs.lastMs != null ? ` · answers in ${hs.lastMs} ms` : ''}` : hs.state === 'failing' ? `Not answering (${hs.fails} of ${hs.threshold})` : 'Waiting for the first check';
 
 /** Single-series bar chart with a per-bar hover readout. */
 function barChart(points, { value, label, format = fmtNum, height = 150, ariaLabel }) {
@@ -2870,74 +2249,6 @@ async function siteTasks(site) {
   return wrap;
 }
 
-/* ---- site settings: health check + memory limit */
-
-function siteSettingsPlus(site) {
-  const el = siteSettings(site);
-  let hPath, hInterval, hFails, mem;
-  let enabled = false;
-  const result = h('div', { class: 'small muted' });
-  const card = h('div', { class: 'card pad-lg form' }, h('h2', {}, 'Health & limits'), h('p', { class: 'muted small', style: 'margin-top:-8px' }, 'Loading…'));
-  api('GET', `/api/sites/${site.name}/health`)
-    .then(({ settings, status }) => {
-      enabled = settings.enabled;
-      const fields = h(
-        'div',
-        { class: `form ${enabled ? '' : 'dim-off'}` },
-        h(
-          'div',
-          { class: 'form-grid' },
-          h('label', { class: 'field' }, h('span', {}, 'Page to check ', h('span', { class: 'hint' }, '(any answer below 500 counts as healthy)')), (hPath = h('input', { class: 'input mono', value: settings.path, placeholder: '/health' }))),
-          h(
-            'label',
-            { class: 'field' },
-            'Check every',
-            (hInterval = h('select', { class: 'input' }, [15, 30, 60, 300].map((s) => h('option', { value: s, selected: s === settings.interval }, s < 60 ? `${s} seconds` : `${s / 60} minute${s > 60 ? 's' : ''}`)))),
-          ),
-        ),
-        h('label', { class: 'field' }, 'Restart after', (hFails = h('select', { class: 'input', style: 'max-width:280px' }, [2, 3, 5, 10].map((n) => h('option', { value: n, selected: n === settings.failures }, `${n} failed checks in a row`))))),
-        h('div', { class: 'row wrap' }, h('button', { class: 'btn sm', type: 'button', onclick: async (e) => busy(e.currentTarget, async () => { const r = await api('POST', `/api/sites/${site.name}/health/test`, { path: hPath.value }); result.textContent = r.ok ? `✓ Healthy — answered ${r.status} in ${r.ms} ms` : `✖ ${r.error}`; result.style.color = r.ok ? 'var(--good)' : 'var(--bad)'; }) }, icon('heart'), 'Test Now'), result),
-      );
-      const hToggle = toggle(enabled, (v) => {
-        enabled = v;
-        fields.classList.toggle('dim-off', !v);
-      }, 'Health check');
-      append(clear(card), [
-        h('h2', {}, 'Health & limits'),
-        h('div', { class: 'row' }, h('div', { class: 'grow' }, h('h3', {}, 'Automatic health check'), h('p', { class: 'muted small' }, 'AutoNode visits a page every so often and restarts the website if it stops answering — even when the process still looks alive.'), status.enabled && h('p', { class: 'small', style: 'margin-top:4px' }, 'Now: ', h('b', {}, healthLabel(status)), status.restarts ? ` · restarted ${status.restarts}× since AutoNode started` : '')), hToggle),
-        fields,
-        h('h3', { style: 'margin-top:10px' }, 'Memory limit'),
-        h('p', { class: 'muted small', style: 'margin-top:-8px' }, 'If the website uses more than this, it is restarted — so one leaking app can never slow down the others. Leave empty for no limit.'),
-        h('div', { class: 'row' }, (mem = h('input', { class: 'input', type: 'number', min: 64, step: 64, value: site.memoryLimitMB || '', placeholder: 'No limit', style: 'max-width:160px' })), h('span', { class: 'muted' }, 'MB'), site.status?.memory != null && h('span', { class: 'small muted' }, `Uses ${fmtBytes(site.status.memory)} right now`)),
-        h(
-          'div',
-          { class: 'row', style: 'margin-top:8px' },
-          h(
-            'button',
-            {
-              class: 'btn primary',
-              onclick: async (e) =>
-                busy(e.currentTarget, async () => {
-                  const before = site.memoryLimitMB || null;
-                  const after = mem.value ? Number(mem.value) : null;
-                  await api('PATCH', `/api/sites/${site.name}`, { health: { enabled, path: hPath.value, interval: Number(hInterval.value), failures: Number(hFails.value) }, memoryLimitMB: after });
-                  site.memoryLimitMB = after;
-                  if (before !== after && (await confirmSheet({ title: 'Saved ✓', text: 'Restart the website now so the new memory limit applies?', ok: 'Restart Now' }))) {
-                    await api('POST', `/api/sites/${site.name}/restart`);
-                    toast('Restarted ✓');
-                  } else toast('Saved ✓');
-                }),
-            },
-            'Save',
-          ),
-        ),
-      ]);
-    })
-    .catch((err) => append(clear(card), [h('h2', {}, 'Health & limits'), notice('bad', err.message)]));
-  el.insertBefore(card, el.lastChild);
-  return el;
-}
-
 /* ---- activity */
 
 async function activityView() {
@@ -2993,110 +2304,6 @@ async function activityView() {
   return h('div', { class: 'page' }, pageHead('Activity', { sub: 'Who did what, and when — including automatic updates, health-check restarts, backups and sign-ins.', actions: seg }), listBox, h('div', { class: 'center', style: 'margin-top:18px' }, more));
 }
 
-/* ---- settings: scheduled backups + dashboard HTTPS */
-
-function scheduledBackupsCard(showRestore) {
-  const card = h('div', { class: 'card pad-lg' }, h('h3', {}, 'Automatic backups'), h('p', { class: 'muted small' }, 'Loading…'));
-  const load = async () => {
-    const { settings: s, backups, running } = await api('GET', '/api/backups');
-    let time, keep, copyTo;
-    const save = async (patch, btn) => {
-      const run = async () => {
-        await api('PATCH', '/api/backups', patch);
-        toast('Saved ✓');
-      };
-      if (btn) await busy(btn, run);
-      else await run().catch((err) => toast(err.message, 'bad'));
-    };
-    let nowBtn;
-    append(clear(card), [
-      h('div', { class: 'row' }, h('div', { class: 'grow' }, h('h3', {}, 'Automatic backups'), h('p', { class: 'muted small' }, 'A full backup (settings, website files and data folders) every day. ', s.lastRun ? (s.lastOk ? `Last one ${fmtAgo(s.lastRun)} ✓` : `Last attempt failed ${fmtAgo(s.lastRun)}: ${s.lastError}`) : 'None made yet.')), toggle(s.enabled, (v) => save({ enabled: v }), 'Automatic backups')),
-      h(
-        'div',
-        { class: 'form-grid', style: 'margin-top:14px' },
-        h('label', { class: 'field' }, 'Time of day', (time = h('input', { class: 'input', type: 'time', value: s.time, onchange: () => save({ time: time.value }) }))),
-        h('label', { class: 'field' }, 'Keep', (keep = h('select', { class: 'input', onchange: () => save({ keep: Number(keep.value) }) }, [3, 7, 14, 30, 90].map((n) => h('option', { value: n, selected: n === s.keep }, `Last ${n} backups`))))),
-      ),
-      h(
-        'label',
-        { class: 'field', style: 'margin-top:14px' },
-        h('span', {}, 'Also copy to ', h('span', { class: 'hint' }, '(optional — another disk or a mounted network share, e.g. /mnt/nas/autonode)')),
-        h('div', { class: 'input-row' }, (copyTo = h('input', { class: 'input mono', value: s.copyTo || '', placeholder: '/mnt/backup-disk/autonode' })), h('button', { class: 'btn sm', onclick: (e) => save({ copyTo: copyTo.value }, e.currentTarget) }, 'Save')),
-      ),
-      h('p', { class: 'small muted', style: 'margin-top:10px' }, 'Stored in ', h('code', {}, s.folder), '. Backups contain keys and tokens: keep the copy folder private.'),
-      h(
-        'div',
-        { class: 'row wrap', style: 'margin-top:14px' },
-        (nowBtn = h(
-          'button',
-          {
-            class: 'btn',
-            disabled: running,
-            onclick: async () =>
-              busy(nowBtn, async () => {
-                await api('POST', '/api/backups/run');
-                toast('Backing up… this can take a minute.');
-                setTimeout(() => load().catch(() => {}), 4000);
-              }),
-          },
-          running ? 'Backup running…' : 'Back Up Now',
-        )),
-      ),
-      backups.length > 0 &&
-        h(
-          'div',
-          { class: 'list flat', style: 'margin-top:14px' },
-          backups.slice(0, 10).map((b) =>
-            h(
-              'div',
-              { class: 'item' },
-              h('span', { style: 'display:flex;color:var(--accent)' }, icon('disk')),
-              h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label' }, new Date(b.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })), h('div', { class: 'small muted' }, `${b.kind === 'manual' ? 'Made by you' : 'Scheduled'} · ${fmtBytes(b.size)}`)),
-              h('a', { class: 'btn icon ghost', title: 'Download', href: `/api/backups/${encodeURIComponent(b.name)}` }, icon('download')),
-              h('button', { class: 'btn sm', onclick: async (e) => busy(e.currentTarget, async () => showRestore(await api('POST', `/api/backups/${encodeURIComponent(b.name)}/prepare`))) }, 'Restore…'),
-              h('button', { class: 'btn icon ghost', title: 'Delete', style: 'color:var(--bad)', onclick: async () => (await confirmSheet({ title: 'Delete this backup?', text: 'It is removed from this computer (copies in the extra folder stay).', ok: 'Delete', danger: true })) && (await api('DELETE', `/api/backups/${encodeURIComponent(b.name)}`), load()) }, icon('trash')),
-            ),
-          ),
-        ),
-    ]);
-  };
-  load().catch((err) => append(clear(card), [h('h3', {}, 'Automatic backups'), notice('bad', err.message)]));
-  return card;
-}
-
-function dashboardHttpsCard(s) {
-  const on = location.protocol === 'https:' || s.dashboardHttps;
-  return h(
-    'div',
-    { class: 'card pad-lg' },
-    h(
-      'div',
-      { class: 'row' },
-      h('div', { class: 'grow' }, h('h3', {}, 'Secure dashboard (HTTPS)'), h('p', { class: 'muted small' }, 'Encrypts the connection to this dashboard so nobody on your Wi-Fi can read your password. Uses a certificate made for this computer: your browser asks you to trust it once.')),
-      toggle(on, async (v, input) => {
-        if (v && !(await confirmSheet({ title: 'Turn on HTTPS?', text: 'The dashboard reloads at https://… Your browser will warn that the certificate is “not trusted” — that is expected for a home server. Choose “Advanced → Continue” once (or install the certificate below to remove the warning). If you ever get locked out, run “sudo autonode https off” on the server.', ok: 'Turn On' }))) return (input.checked = false);
-        try {
-          const r = await api('PATCH', '/api/settings', { dashboardHttps: v });
-          toast(v ? 'Switching to HTTPS…' : 'Switching back to HTTP…');
-          setTimeout(() => (location.href = r.url), 600);
-        } catch (err) {
-          input.checked = !v;
-          toast(err.message, 'bad');
-        }
-      }, 'Secure dashboard'),
-    ),
-    s.dashboardCert?.hasCert &&
-      h(
-        'div',
-        { class: 'row wrap', style: 'margin-top:14px' },
-        h('a', { class: 'btn sm', href: '/api/dashboard-cert' }, icon('download'), 'Download Certificate'),
-        h('button', { class: 'btn sm', onclick: async (e) => busy(e.currentTarget, async () => (await api('POST', '/api/dashboard-cert/regenerate'), toast('New certificate made ✓ — reload the page'))) }, 'Make New Certificate'),
-        h('span', { class: 'small muted' }, `Covers ${s.dashboardCert.names.slice(0, 4).join(', ')}${s.dashboardCert.names.length > 4 ? '…' : ''}. Make a new one if this computer's address changed.`),
-      ),
-    s.dashboardCert?.hasCert && h('details', { class: 'more' }, h('summary', {}, 'Remove the browser warning'), h('div', { class: 'small', style: 'color:var(--text-2)' }, h('ol', { style: 'padding-left:18px;display:flex;flex-direction:column;gap:6px' }, h('li', {}, h('b', {}, 'Mac: '), 'open the downloaded file → Keychain Access → double-click it → Trust → “Always Trust”.'), h('li', {}, h('b', {}, 'Windows: '), 'open the file → Install Certificate → Local Machine → “Trusted Root Certification Authorities”.'), h('li', {}, h('b', {}, 'iPhone/iPad: '), 'open the file, install the profile, then Settings → General → About → Certificate Trust Settings → turn it on.'), h('li', {}, h('b', {}, 'Android: '), 'Settings → Security → Encryption & credentials → Install a certificate → CA certificate.')))),
-  );
-}
-
 /* =========================================================== router */
 
 let renderToken = 0;
@@ -3119,11 +2326,11 @@ async function render() {
     return;
   }
   connectStream();
-  const [, route = 'overview', a, b] = (location.hash || '#/overview').split('?')[0].split('/'); // "?…" = view options (e.g. ?area=data)
+  const [, route = 'overview', a, b, c] = (location.hash || '#/overview').split('?')[0].split('/'); // "?…" = view options (e.g. ?area=data)
   let view;
   try {
-    if (route === 'sites' && a) view = await siteView(decodeURIComponent(a), b);
-    else view = await ({ overview: overviewView, sites: sitesView, domains: domainsView, network: networkView, activity: activityView, settings: settingsView }[route] || overviewView)();
+    if (route === 'sites' && a) view = await siteView(decodeURIComponent(a), b, c);
+    else view = await ({ overview: overviewView, sites: sitesView, domains: domainsView, network: networkView, activity: activityView, settings: settingsView }[route] || overviewView)(a);
   } catch (err) {
     if (err.message === 'Please sign in.') return;
     view = h('div', { class: 'page' }, h('div', { class: 'card empty' }, h('h2', {}, 'Something went wrong'), h('p', {}, err.message), h('a', { class: 'btn primary', href: '#/overview' }, 'Go to Overview')));

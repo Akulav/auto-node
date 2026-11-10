@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 import * as config from './config.js';
 import * as activity from './activity.js';
 import { getSite, runInSite } from './sites.js';
-import { HttpError } from './util.js';
+import { HttpError, readJsonFile, writeFileAtomic } from './util.js';
 
 /* ------------------------------------------------------------------ cron */
 
@@ -106,11 +106,8 @@ function runsFile(name, id) {
 }
 
 function readRuns(name, id) {
-  try {
-    return JSON.parse(fs.readFileSync(runsFile(name, id), 'utf8'));
-  } catch {
-    return [];
-  }
+  const runs = readJsonFile(runsFile(name, id), []);
+  return Array.isArray(runs) ? runs : [];
 }
 
 export function list(name) {
@@ -193,10 +190,12 @@ export function run(name, id, by = 'you') {
     const finishedAt = new Date().toISOString();
     try {
       fs.mkdirSync(dirFor(name), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(path.join(dirFor(name), `${id}.log`), r.output.join(''), { mode: 0o600 });
+      writeFileAtomic(path.join(dirFor(name), `${id}.log`), r.output.join(''));
       const runs = [{ at: r.startedAt, finishedAt, ok, error, by, durationMs: Date.parse(finishedAt) - Date.parse(r.startedAt) }, ...readRuns(name, id)].slice(0, 20);
-      fs.writeFileSync(runsFile(name, id), JSON.stringify(runs), { mode: 0o600 });
-    } catch {}
+      writeFileAtomic(runsFile(name, id), JSON.stringify(runs));
+    } catch (err) {
+      console.error(`[tasks] Couldn't save the result of "${task.name}" (${name}):`, err.message);
+    }
     running.delete(key);
     if (!ok || by !== 'schedule') activity.record({ action: ok ? `Task “${task.name}” finished` : `Task “${task.name}” failed`, site: name, detail: error, ok, by });
   })();

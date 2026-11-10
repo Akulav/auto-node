@@ -2,6 +2,39 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-11-10
+
+### Added
+
+- **Remote access.** Settings → Remote Access lets you open the dashboard from outside your home network. It needs the secure dashboard (HTTPS) and turns off with it; outside visitors are never served over plain HTTP, get HSTS, and see neither the computer's name nor the AutoNode version before signing in. The tab shows the port to forward and your public address, and suggests a VPN as the safer option. `sudo autonode remote on|off` from the server.
+- **Stronger sign-in protection.** Lockouts escalate per address (5 wrong passwords → 1 minute, 10 → 15 minutes, 20+ → 1 hour). 30 wrong passwords from the internet within 15 minutes pause outside sign-ins for 15 minutes, while sign-ins at home keep working. Failed and successful sign-ins from the internet are marked in Activity.
+- **Sign out everywhere** (Settings → Security) ends every session on every device.
+- **Snapshots per website** can be chosen in Settings → Web Server.
+
+### Changed
+
+- **Settings are split into tabs** — General, Web Server, Backups, Export & Import, Security, Remote Access — each with its own address (`#/settings/security`…). A website's Settings tab is split into General, Environment, Health & Limits and Delete. Every tab fits on one screen: long lists (environment variables, saved backups, restore previews) scroll inside their card or open in a sheet.
+- Changing the password asks for the new one twice. Saving a website's name or build command no longer asks to restart; changing its port, start command, variables or memory limit still does.
+- Code: shared browser helpers moved to `public/ui.js`, the Settings page to `public/settings.js` and a website's settings to `public/site-settings.js`. Settings-page API routes moved from `server.js`/`features.js` to `src/settings.js`.
+
+### Fixed
+
+- **Password-protected websites always answered with an error.** Leftover code in the proxy referenced a request that didn't exist, so every visit to a site with a visitor password failed.
+- **A website could make AutoNode overwrite any file on the server.** Uploads went through a fixed temp name (`<file>.autonode-upload`) that the website's own code could replace with a symlink. Edits, uploads and downloads now open files without following symlinks, check where the opened file really is, and write through a random temp file that is renamed into place.
+- Deleting a website kept its visitor stats, health state, icon and disk usage in memory; a new website with the same name inherited them (and the stats were written back to disk). Deleting during a deploy is now refused.
+- A website named `constructor` (or another built-in object name) couldn't be created.
+- A certificate without any domain name caused a server error instead of a clear message.
+- First-run password setup is only possible from the home network.
+- Mutating requests without an `Origin` header but with a cross-site `Sec-Fetch-Site` are blocked.
+
+### Reliability
+
+- Settings and all state files (deploy history, task runs, visitor stats, snapshot info, certificates) are written atomically with `fsync`, so a crash or power cut can't leave half a file.
+- `config.json.bak` keeps the last good settings; a damaged `config.json` is restored from it at startup (the damaged file is kept). Sections damaged by hand edits are repaired instead of crashing AutoNode.
+- A settings change that fails (including "disk full") is rolled back in memory too, with a plain-language error.
+- Edited website files keep their permissions (e.g. executable scripts) and are replaced in one step.
+- Failed snapshots no longer leave large partial files behind; damaged visitor-stat files are set aside instead of silently overwritten.
+
 ## [1.3.0] - 2026-11-09
 
 ### Added

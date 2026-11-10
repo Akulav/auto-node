@@ -84,6 +84,7 @@ const commands = {
                   Back up all settings (and website files)
     import <file> Restore a backup made by "export" or the dashboard
     https on|off  Use HTTPS for the dashboard (self-signed certificate)
+    remote on|off Allow opening the dashboard from outside your home network
     logs          Follow AutoNode's own logs
     version       Print the version
 `);
@@ -264,9 +265,36 @@ WantedBy=multi-user.target
     }
     config.load();
     if (mode === 'on') await (await import('../src/dashtls.js')).ensureCert();
-    config.update((c) => (c.dashboard.https = mode === 'on'));
+    const wasRemote = config.get().dashboard.allowPublic;
+    config.update((cfg) => {
+      cfg.dashboard.https = mode === 'on';
+      if (mode === 'off') cfg.dashboard.allowPublic = false; // remote access is only allowed over HTTPS
+    });
     if (!config.DEV) sh('systemctl', ['restart', 'autonode']);
     console.log(c.green(`✓ Dashboard is now ${mode === 'on' ? 'https' : 'http'}://${lanIp()}:${config.get().dashboard.port}`));
+    if (mode === 'off' && wasRemote) console.log(c.dim('  Remote access was turned off too: it needs HTTPS.'));
+  },
+
+  /** Allow or block opening the dashboard from outside the home network. */
+  async remote() {
+    requireRoot();
+    const mode = args.find((a) => !a.startsWith('--'));
+    if (!['on', 'off'].includes(mode)) {
+      console.error('Usage: sudo autonode remote on|off');
+      process.exit(1);
+    }
+    config.load();
+    if (mode === 'on' && !config.get().dashboard.https) {
+      console.error(c.red('Turn on HTTPS first, so your password is encrypted on the internet:  sudo autonode https on'));
+      process.exit(1);
+    }
+    if (mode === 'on' && !config.get().auth.hash) {
+      console.error(c.red('Choose a dashboard password first (open the dashboard at home, or run: sudo autonode passwd).'));
+      process.exit(1);
+    }
+    config.update((cfg) => (cfg.dashboard.allowPublic = mode === 'on'));
+    if (!config.DEV) sh('systemctl', ['restart', 'autonode']);
+    console.log(c.green(mode === 'on' ? `✓ Remote access is on. Forward port ${config.get().dashboard.port} (TCP) on your router to this computer.` : '✓ Remote access is off. Only your home network can open the dashboard.'));
   },
 
   logs() {

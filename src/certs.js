@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import tls from 'node:tls';
 import * as config from './config.js';
-import { HttpError } from './util.js';
+import { HttpError, writeFileAtomic } from './util.js';
 
 let contexts = []; // [{ id, names, context, validTo }]
 const listeners = new Set();
@@ -76,9 +76,12 @@ export function add(certPem, keyPem) {
   certPem = String(certPem || '').trim() + '\n';
   keyPem = String(keyPem || '').trim() + '\n';
   const info = inspect(certPem, keyPem);
+  if (!info.names.length) throw new HttpError(400, "This certificate doesn't name any domain, so AutoNode can't tell which website it is for.");
   const id = info.names[0].replace(/^\*\./, 'wildcard.').replace(/[^a-z0-9.-]/g, '_') + '-' + info.fingerprint.replace(/:/g, '').slice(0, 8).toLowerCase();
-  fs.writeFileSync(path.join(config.paths.certsDir, `${id}.crt`), certPem, { mode: 0o600 });
-  fs.writeFileSync(path.join(config.paths.certsDir, `${id}.key`), keyPem, { mode: 0o600 });
+  fs.mkdirSync(config.paths.certsDir, { recursive: true, mode: 0o700 });
+  // Key first: reload() only picks up a certificate whose key is already there.
+  writeFileAtomic(path.join(config.paths.certsDir, `${id}.key`), keyPem);
+  writeFileAtomic(path.join(config.paths.certsDir, `${id}.crt`), certPem);
   reload();
   return { id, ...info };
 }

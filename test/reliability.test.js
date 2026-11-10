@@ -1,0 +1,177 @@
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+// Isolated dev-mode sandbox — never touches /etc or /var.
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'autonode-rel-'));
+process.env.AUTONODE_DEV = '1';
+process.env.AUTONODE_CONFIG_DIR = path.join(tmp, 'etc');
+process.env.AUTONODE_DATA_DIR = path.join(tmp, 'data');
+
+const config = await import('../src/config.js');
+const auth = await import('../src/auth.js');
+const settings = await import('../src/settings.js');
+const files = await import('../src/files.js');
+const sites = await import('../src/sites.js');
+const { writeFileAtomic, readJsonFile } = await import('../src/util.js');
+const { handler } = await import('../src/server.js');
+
+before(() => config.load());
+after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+/** A fake request/response pair for the dashboard handler. */
+function call({ method = 'GET', url = '/api/session', ip = '192.168.1.5', encrypted = false, headers = {} } = {}) {
+  const res = {
+    status: 0,
+    headers: {},
+    body: '',
+    headersSent: false,
+    setHeader(k, v) {
+      this.headers[k.toLowerCase()] = v;
+    },
+    writeHead(s, h = {}) {
+      this.status = s;
+      for (const [k, v] of Object.entries(h)) this.headers[k.toLowerCase()] = v;
+      this.headersSent = true;
+    },
+    end(b = '') {
+      this.body += b;
+    },
+  };
+  // Only bodiless requests (GET, or ones refused before the body is read) are used here.
+  const req = { method, url, headers: { host: 'x', ...headers }, socket: { remoteAddress: ip, encrypted }, on() {}, resume() {} };
+  return { req, res, done: handler(req, res).then(() => res) };
+}
+
+test('atomic writes replace a file in one step and leave no temp files', () => {
+  const file = path.join(tmp, 'atomic.json');
+  writeFileAtomic(file, '{"a":1}');
+  writeFileAtomic(file, '{"a":2}');
+  assert.deepEqual(readJsonFile(file, null), { a: 2 });
+  assert.deepEqual(fs.readdirSync(tmp).filter((f) => f.startsWith('atomic.json.')), []);
+  assert.equal(readJsonFile(path.join(tmp, 'missing.json'), 'fallback'), 'fallback');
+});
+
+test('a failed config change is rolled back in memory too', () => {
+  const before = config.get().proxy.redirectHttps;
+  assert.throws(() =>
+    config.update((c) => {
+      c.proxy.redirectHttps = !before;
+      throw new Error('boom');
+    }),
+  );
+  assert.equal(config.get().proxy.redirectHttps, before);
+});
+
+test('a damaged config.json is recovered from the last good copy', () => {
+  config.update((c) => (c.selfUpdate.auto = true));
+  config.update((c) => (c.selfUpdate.lastCheck = 'kept')); // the previous file becomes config.json.bak
+  fs.writeFileSync(config.paths.configFile, '{"half": tr'); // e.g. a power cut on an old version
+  const s = config.load();
+  assert.equal(s.selfUpdate.auto, true);
+  assert.ok(fs.readdirSync(config.paths.configDir).some((f) => f.startsWith('config.json.damaged-')), 'damaged file kept for inspection');
+  assert.doesNotThrow(() => JSON.parse(fs.readFileSync(config.paths.configFile, 'utf8')));
+});
+
+test('config sections stay objects even if the file has junk in them', () => {
+  fs.writeFileSync(config.paths.configFile, JSON.stringify({ dashboard: null, sites: { bad: null, ok: { name: 'other' } }, __proto__: { polluted: true } }));
+  const s = config.load();
+  assert.equal(typeof s.dashboard.port, 'number');
+  assert.deepEqual(s.sites, {});
+  assert.equal({}.polluted, undefined);
+});
+
+test('wrong passwords lock an address for longer each time; outside sign-ins pause during an attack', async () => {
+  await auth.setPassword('correct horse');
+  auth.resetLockouts();
+  for (let i = 0; i < 5; i++) assert.equal(await auth.verifyPassword('nope', '203.0.113.9'), false);
+  await assert.rejects(auth.verifyPassword('correct horse', '203.0.113.9'), /1 minute/);
+  // Many outside addresses: outside sign-ins pause, home ones don't.
+  auth.resetLockouts();
+  for (let i = 0; i < 30; i++) await auth.verifyPassword('nope', `198.51.100.${i}`);
+  await assert.rejects(auth.verifyPassword('correct horse', '198.51.100.200'), /paused/);
+  assert.equal(await auth.verifyPassword('correct horse', '192.168.1.20'), true);
+  auth.resetLockouts();
+});
+
+test('sign out everywhere invalidates existing sessions', () => {
+  const cookie = auth.createSessionCookie(false).split(';')[0];
+  assert.equal(auth.isAuthenticated({ headers: { cookie } }), true);
+  auth.revokeAllSessions();
+  assert.equal(auth.isAuthenticated({ headers: { cookie } }), false);
+});
+
+test('remote access needs HTTPS, and turning HTTPS off turns it off', async () => {
+  config.update((c) => (c.dashboard.https = false));
+  assert.throws(() => settings.setRemoteAccess(true), /HTTPS/);
+  config.update((c) => (c.dashboard.https = true));
+  assert.deepEqual(settings.setRemoteAccess(true), { enabled: true });
+  const r = await settings.updateSettings({ dashboardHttps: false });
+  assert.equal(r.remoteTurnedOff, true);
+  assert.equal(config.get().dashboard.allowPublic, false);
+});
+
+test('the dashboard refuses the internet unless remote access is on, and then only over HTTPS', async () => {
+  config.update((c) => {
+    c.dashboard.allowPublic = false;
+    c.dashboard.https = true;
+  });
+  let res = await call({ ip: '8.8.8.8', encrypted: true }).done;
+  assert.equal(res.status, 403);
+  assert.match(res.body, /local network/);
+
+  config.update((c) => (c.dashboard.allowPublic = true));
+  res = await call({ ip: '8.8.8.8', encrypted: false }).done;
+  assert.equal(res.status, 403, 'never over plain HTTP');
+  res = await call({ ip: '8.8.8.8', encrypted: true }).done;
+  assert.equal(res.status, 200);
+  const session = JSON.parse(res.body);
+  assert.equal(session.hostname, null, 'strangers learn nothing about the computer');
+  assert.equal(session.version, null);
+  assert.ok(res.headers['strict-transport-security']);
+
+  res = await call({ ip: '192.168.1.5' }).done;
+  assert.equal(JSON.parse(res.body).hostname, os.hostname());
+  config.update((c) => (c.dashboard.allowPublic = false));
+});
+
+test('cross-site requests are blocked even without an Origin header', async () => {
+  const res = await call({ method: 'POST', url: '/api/logout', headers: { 'sec-fetch-site': 'cross-site' } }).done;
+  assert.equal(res.status, 403);
+});
+
+test('editing a file never writes through a symlink planted in its place', async () => {
+  const site = await sites.createSite({ name: 'linky', template: 'empty' });
+  const dir = sites.siteDir(site.name);
+  const outside = path.join(tmp, 'outside.txt');
+  fs.writeFileSync(outside, 'secret');
+  try {
+    fs.symlinkSync(outside, path.join(dir, 'link.txt'));
+  } catch {
+    return; // no symlink permission (Windows without developer mode)
+  }
+  await assert.rejects(async () => files.readText('linky', '/link.txt'), /Invalid path/);
+  await assert.rejects(async () => files.writeText('linky', '/link.txt', 'new'), /Invalid path/);
+  await assert.rejects(async () => files.downloadStream('linky', '/link.txt'), /Invalid path/);
+  assert.equal(fs.readFileSync(outside, 'utf8'), 'secret');
+  // A planted file at an old-style fixed temp name is never written through either.
+  fs.writeFileSync(path.join(dir, 'page.html'), 'old');
+  try {
+    fs.symlinkSync(outside, path.join(dir, 'page.html.autonode-upload'));
+  } catch {}
+  await files.writeText('linky', '/page.html', 'new');
+  assert.equal(fs.readFileSync(path.join(dir, 'page.html'), 'utf8'), 'new');
+  assert.equal(fs.readFileSync(outside, 'utf8'), 'secret');
+});
+
+test('saving a file keeps its permissions and leaves no temp files', async () => {
+  await sites.createSite({ name: 'modes', template: 'empty' });
+  const dir = sites.siteDir('modes');
+  fs.writeFileSync(path.join(dir, 'run.sh'), 'echo hi', { mode: 0o755 });
+  await files.writeText('modes', '/run.sh', 'echo bye');
+  assert.equal(fs.readFileSync(path.join(dir, 'run.sh'), 'utf8'), 'echo bye');
+  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(dir, 'run.sh')).mode & 0o777, 0o755);
+  assert.deepEqual(fs.readdirSync(dir).filter((f) => f.includes('autonode-tmp')), []);
+});

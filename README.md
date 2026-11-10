@@ -41,7 +41,7 @@ Made with ♥ by **Akulav**
 | **Network** | See your IP, router and DNS. Switch to a fixed (static) IP from the dashboard — NetworkManager and netplan supported. |
 | **Backup & restore** | Export all settings (websites, domains, env vars, certificates, Cloudflare) as one `.json`, or everything including website files as a `.tar.gz`. Import on any machine to restore or migrate — with a preview before anything changes. |
 | **Self-updating** | AutoNode checks its own repository and updates itself (optionally automatically). |
-| **Safe by default** | Password-protected, LAN-only dashboard, with optional HTTPS on the same port. Websites run as an unprivileged `autonode` user with systemd hardening. |
+| **Safe by default** | Password-protected dashboard that only your home network can reach (optional remote access over HTTPS), with optional HTTPS on the same port. Websites run as an unprivileged `autonode` user with systemd hardening. |
 
 ## Requirements
 
@@ -100,6 +100,7 @@ Your app only needs to listen on `process.env.PORT`.
 | `sudo autonode export [file] [--with-files]` | Back up settings (and website files with `--with-files`) |
 | `sudo autonode import <file> [--keep-settings]` | Restore a backup from the CLI or the dashboard |
 | `sudo autonode https on\|off` | Turn HTTPS for the dashboard on or off (use `off` if a browser locks you out) |
+| `sudo autonode remote on\|off` | Allow opening the dashboard from outside your home network (needs HTTPS) |
 | `autonode logs` | Follow AutoNode's own logs |
 | `autonode dev` | Run the dashboard locally in dev mode |
 
@@ -115,13 +116,17 @@ Most settings live in the dashboard. A few can be set with environment variables
 | `AUTONODE_REPO` | `https://github.com/Akulav/auto-node.git` | Installer: where to download AutoNode from |
 | `AUTONODE_DIR` | `/opt/autonode` | Installer: where to install AutoNode |
 
-Ports (dashboard `7070`, HTTP `80`, HTTPS `443`) and `allowPublic` (default `false`, keeps the dashboard LAN-only) can be changed in `/etc/autonode/config.json`; restart with `sudo systemctl restart autonode`.
+Ports (dashboard `7070`, HTTP `80`, HTTPS `443`) can be changed in `/etc/autonode/config.json`; restart with `sudo systemctl restart autonode`.
+
+### Remote access
+
+The dashboard only answers your home network (and VPNs like Tailscale) by default. To open it from anywhere, turn on **Settings → Security → Secure dashboard (HTTPS)**, then **Settings → Remote Access**, and forward port `7070` (TCP) on your router to the server. Outside visitors are only ever served over HTTPS, wrong passwords lock an address for longer each time, and a burst of wrong passwords from the internet pauses outside sign-ins while home sign-ins keep working. Turn it off from the dashboard or with `sudo autonode remote off`.
 
 ## Upgrading
 
 AutoNode updates itself from GitHub. Your websites keep running during the update.
 
-1. Open **Settings** → **Software Update** → **Check for Updates**.
+1. Open **Settings** → **General** → **Check for Updates**.
 2. Click **Update Now**, or turn on **Install updates automatically** (checks daily).
 3. From a terminal you can also run `sudo autonode update`.
 

@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 export const isLinux = process.platform === 'linux';
@@ -127,6 +129,55 @@ export function sendJson(res, status, data) {
 }
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** This computer's first LAN IPv4 address. */
+export function lanAddress() {
+  for (const addrs of Object.values(os.networkInterfaces())) for (const a of addrs || []) if (a.family === 'IPv4' && !a.internal) return a.address;
+  return '127.0.0.1';
+}
+
+/** The client's address without the IPv4-in-IPv6 prefix. */
+export const clientIp = (req) => String(req.socket?.remoteAddress || '').replace(/^::ffff:/, '');
+
+/**
+ * Write a file so that readers (and a power cut) only ever see the old or the new
+ * content, never half of it: write a temp file next to it, flush it to disk, rename.
+ * The temp name is random and opened with O_EXCL, so a planted symlink is never followed.
+ */
+export function writeFileAtomic(file, data, { mode = 0o600 } = {}) {
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+  let fd;
+  try {
+    fd = fs.openSync(tmp, 'wx', mode);
+    fs.writeFileSync(fd, data);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    if (fd != null) fs.closeSync(fd);
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
+  try {
+    // Make the rename itself durable (not supported on Windows; harmless to skip).
+    const dirFd = fs.openSync(path.dirname(file), 'r');
+    try {
+      fs.fsyncSync(dirFd);
+    } finally {
+      fs.closeSync(dirFd);
+    }
+  } catch {}
+}
+
+/** Read a JSON file, or return `fallback` if it is missing or damaged. */
+export function readJsonFile(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return fallback;
+  }
+}
 
 export const SITE_NAME_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 export const HOSTNAME_RE = /^(?=.{1,253}$)(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;

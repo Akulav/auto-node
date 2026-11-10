@@ -58,7 +58,7 @@ export async function streamFullExport(out) {
   if (!which('tar')) throw new HttpError(500, 'The "tar" program is missing.');
   const tmp = fs.mkdtempSync(path.join(config.paths.tmpDir, 'export-'));
   fs.writeFileSync(path.join(tmp, JSON_NAME), JSON.stringify(buildManifest(), null, 2), { mode: 0o600 });
-  const args = ['-czf', '-', '--exclude=node_modules', '--exclude=*.autonode-upload', '-C', tmp, JSON_NAME];
+  const args = ['-czf', '-', '--exclude=node_modules', '--exclude=*.autonode-upload', '--exclude=*.autonode-tmp', '-C', tmp, JSON_NAME];
   if (fs.existsSync(config.paths.sitesDir)) args.push('-C', config.paths.dataDir, 'sites');
   if (fs.existsSync(config.paths.siteDataRoot)) args.push('-C', config.paths.dataDir, path.basename(config.paths.siteDataRoot)); // each site's DATA_DIR
   const child = spawn('tar', args, { stdio: ['ignore', 'pipe', 'pipe'] });

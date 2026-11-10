@@ -29,17 +29,69 @@ export async function setPassword(password) {
   });
 }
 
+/*
+ * Guessing protection.
+ *  • Per address: 5 wrong tries → 1 minute pause, 10 → 15 minutes, 20+ → 1 hour.
+ *    A quiet hour forgets the count.
+ *  • Internet as a whole (remote access): 30 wrong tries from outside the home network
+ *    within 15 minutes pause *outside* sign-ins for 15 minutes. Home-network sign-ins keep
+ *    working, so an attacker spraying from many addresses can't lock the owner out at home.
+ */
+const FORGET_MS = 60 * 60_000;
+const PUBLIC_WINDOW_MS = 15 * 60_000;
+const PUBLIC_MAX_FAILURES = 30;
+let publicFailures = []; // timestamps
+let publicPausedUntil = 0;
+
+const lockFor = (count) => (count >= 20 ? 60 * 60_000 : count >= 10 ? 15 * 60_000 : count >= 5 ? 60_000 : 0);
+const minutes = (ms) => Math.max(1, Math.ceil(ms / 60_000));
+
 function checkLockout(ip) {
-  const f = failures.get(ip);
-  if (f && f.until > Date.now()) throw new HttpError(429, 'Too many attempts. Try again in a minute.');
+  const now = Date.now();
+  let f = failures.get(ip);
+  if (f && now - f.last > FORGET_MS) {
+    failures.delete(ip);
+    f = undefined;
+  }
+  if (f && f.until > now) {
+    const m = minutes(f.until - now);
+    throw new HttpError(429, `Too many wrong passwords. Try again in ${m} minute${m === 1 ? '' : 's'}.`);
+  }
+  if (!isPrivateAddress(ip) && publicPausedUntil > now) {
+    throw new HttpError(429, `Sign-ins from outside your home network are paused for ${minutes(publicPausedUntil - now)} more minutes because of many wrong passwords. You can still sign in at home.`);
+  }
   return f;
 }
 
 function recordResult(ip, f, ok) {
   if (ok) return failures.delete(ip);
+  const now = Date.now();
   if (failures.size > 10_000) failures.clear(); // don't grow forever under a spray of addresses
   const count = (f?.count || 0) + 1;
-  failures.set(ip, { count, until: count >= 5 ? Date.now() + 60_000 : 0 });
+  failures.set(ip, { count, last: now, until: now + lockFor(count) });
+  if (!isPrivateAddress(ip)) {
+    publicFailures = publicFailures.filter((t) => now - t < PUBLIC_WINDOW_MS);
+    publicFailures.push(now);
+    if (publicFailures.length >= PUBLIC_MAX_FAILURES) {
+      publicPausedUntil = now + PUBLIC_WINDOW_MS;
+      publicFailures = [];
+      console.error('[auth] Many wrong passwords from the internet: outside sign-ins paused for 15 minutes.');
+    }
+  }
+}
+
+/** For tests. */
+export function resetLockouts() {
+  failures.clear();
+  publicFailures = [];
+  publicPausedUntil = 0;
+}
+
+/** Sign out every device: old cookies no longer verify. */
+export function revokeAllSessions() {
+  config.update((c) => {
+    c.sessionSecret = crypto.randomBytes(32).toString('hex');
+  });
 }
 
 /** First-run setup code, with the same lockout as the password. */
@@ -108,7 +160,7 @@ export function isAuthenticated(req) {
 
 /** Private / LAN / VPN ranges that may reach the dashboard. */
 export function isPrivateAddress(addr = '') {
-  let a = addr.replace(/^::ffff:/, '');
+  let a = String(addr || '').replace(/^::ffff:/, '');
   if (a === '::1' || a === '127.0.0.1' || a.startsWith('127.')) return true;
   if (a.includes(':')) {
     a = a.toLowerCase();

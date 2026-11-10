@@ -14,7 +14,7 @@ import * as config from './config.js';
 import { getSite, siteDir, fixOwnership } from './sites.js';
 import { siteUser } from './runner.js';
 import { lockedFiles } from './locks.js';
-import { HttpError, which } from './util.js';
+import { HttpError, which, writeFileAtomic } from './util.js';
 
 const ID_RE = /^[0-9]{8}-[0-9]{6}-[0-9a-z]{4}$/;
 const dirFor = (name) => path.join(config.paths.snapshotsDir, name);
@@ -74,11 +74,16 @@ export async function create(name, { reason = 'manual', commit = null } = {}) {
   const id = newId();
   const file = path.join(dir, `${id}.tar.gz`);
   // Read as root (tar stores symlinks, it doesn't follow them); written to a root-only folder.
-  await tar(['-czf', file + '.part', '--exclude=node_modules', '--exclude=*.autonode-upload', '-C', src, '.']);
-  fs.renameSync(file + '.part', file);
+  try {
+    await tar(['-czf', file + '.part', '--exclude=node_modules', '--exclude=*.autonode-upload', '--exclude=*.autonode-tmp', '-C', src, '.']);
+    fs.renameSync(file + '.part', file);
+  } catch (err) {
+    fs.rmSync(file + '.part', { force: true }); // a failed snapshot must not fill the disk
+    throw err;
+  }
   fs.chmodSync(file, 0o600);
   const meta = { id, at: new Date().toISOString(), reason, commit, size: fs.statSync(file).size };
-  fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(meta), { mode: 0o600 });
+  writeFileAtomic(path.join(dir, `${id}.json`), JSON.stringify(meta));
   prune(name);
   return meta;
 }

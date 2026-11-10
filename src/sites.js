@@ -96,7 +96,7 @@ export function publicSite(s, status) {
 export async function createSite({ name, title, template = 'starter' }) {
   name = String(name || '').trim().toLowerCase();
   if (!SITE_NAME_RE.test(name)) throw new HttpError(400, 'Use lowercase letters, numbers and dashes (e.g. "my-blog").');
-  if (config.get().sites[name]) throw new HttpError(409, 'A website with that name already exists.');
+  if (Object.hasOwn(config.get().sites, name)) throw new HttpError(409, 'A website with that name already exists.');
   const dir = siteDir(name);
   fs.mkdirSync(dir, { recursive: true });
   const site = {

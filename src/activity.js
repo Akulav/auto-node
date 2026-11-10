@@ -18,7 +18,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
  */
 export function record({ action, site = null, detail = null, ok = true, ip = null, by = 'system' }) {
   const file = config.paths.activityFile;
-  const entry = { at: new Date().toISOString(), action, site, detail: detail == null ? null : String(detail).slice(0, 500), ok, ip, by };
+  const entry = { at: new Date().toISOString(), action: String(action).slice(0, 200), site: site == null ? null : String(site).slice(0, 80), detail: detail == null ? null : String(detail).slice(0, 500), ok, ip, by };
   try {
     try {
       if (fs.statSync(file).size > MAX_BYTES) fs.renameSync(file, file + '.1');
@@ -96,6 +96,9 @@ const LABELS = {
   'POST /api/network': (p, b) => ['Changed network settings', b.mode === 'static' ? `fixed address ${b.address}` : 'automatic'],
   'PATCH /api/settings': () => ['Changed settings'],
   'POST /api/password': () => ['Changed the dashboard password'],
+  'POST /api/sessions/revoke': () => ['Signed out everywhere'],
+  'PATCH /api/remote-access': (p, b) => [b.enabled ? 'Turned on remote access' : 'Turned off remote access'],
+  'PATCH /api/snapshots': (p, b) => ['Changed how many snapshots are kept', b.keep != null ? `keep ${Number(b.keep)}` : null],
   'POST /api/backup/restore': () => ['Restored a backup'],
   'PATCH /api/backups': () => ['Changed backup schedule'],
   'POST /api/backups/run': () => ['Started a backup'],

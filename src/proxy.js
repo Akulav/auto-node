@@ -172,12 +172,6 @@ function handle(secure) {
         console.error('[proxy] access:', err);
         if (!res.headersSent) page(res, 500, 'Something went wrong', 'Please try again.');
       });
-    up.setTimeout(10 * 60_000, () => up.destroy(new Error('timeout'))); // idle time; slow reports/exports need more than 2 min
-    up.on('error', () => {
-      if (!res.headersSent) page(res, 502, 'Starting up…', 'This website is not responding right now. If you own it, check that it is running in AutoNode.');
-      else res.destroy();
-    });
-    req.pipe(up);
   };
 }
 

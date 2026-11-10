@@ -41,7 +41,8 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/files.js` | Path-confined file operations, unzip, placing finished uploads |
 | `src/uploads.js` | Chunked, resumable uploads (idempotent pieces at byte offsets, free-space check, stale cleanup) |
 | `src/deploy.js` | Git connect/check/deploy, auto-update loop, webhook verification, workflow generator |
-| `src/features.js` | API routes for the features below (registered into the router in `server.js`) |
+| `src/settings.js` | API routes behind the Settings page, grouped like its tabs: updates, web server, backups, export & import, security, remote access |
+| `src/features.js` | API routes for the per-website features below (registered into the router in `server.js`) |
 | `src/activity.js` | Activity log (JSONL, rotated at 5 MB) and plain-language labels for dashboard actions |
 | `src/snapshots.js` | Pre-deploy and manual snapshots (`tar`, no `node_modules`); restore runs tar as the site user, keeps locked files |
 | `src/history.js` | Last 50 deploys per site with logs |
@@ -55,7 +56,7 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/network.js` | Interface info, static IP via `nmcli` or netplan |
 | `src/selfupdate.js` | Update AutoNode from its own git checkout |
 | `src/backup.js` | Export (JSON manifest or `.tar.gz` with site files) and restore with clash resolution |
-| `public/` | The web app (`index.html`, `app.js`, `app.css`, icon) |
+| `public/` | The web app, plain ES modules: `ui.js` (shared helpers: `h()`, `api()`, sheets, toasts…), `app.js` (shell, router, pages), `settings.js` (Settings tabs at `#/settings/<tab>`), `site-settings.js` (a website's Settings sections at `#/sites/<name>/settings/<section>`), `app.css` |
 
 ## Websites
 
@@ -93,13 +94,21 @@ Triggers: the dashboard button, the auto-update loop (polls every N minutes), an
 - Websites can't use the dashboard or proxy ports, and the proxy never forwards to them: proxied traffic arrives from 127.0.0.1 and would otherwise pass the LAN check below.
 - The proxy only believes `CF-Connecting-IP` / `X-Forwarded-*` from Cloudflare's IP ranges or loopback (Tunnel); otherwise it replaces them with the real peer address.
 - Root never follows symlinks when copying website files during updates (`plainFile()`, `O_NOFOLLOW`), and `chown -R -h` doesn't either.
-- The dashboard rejects any client outside private ranges (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`, loopback, IPv6 ULA/link-local) unless `dashboard.allowPublic` is set.
-- First-run password creation requires the setup code printed by the installer.
-- Passwords use scrypt; sessions are HMAC-signed cookies (`HttpOnly`, `SameSite=Strict`); changing the password rotates the signing secret.
-- Mutating requests with a foreign `Origin` are rejected; strict CSP and `X-Frame-Options: DENY` on all pages.
-- Login is rate-limited per IP.
+- The dashboard rejects any client outside private ranges (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`, loopback, IPv6 ULA/link-local) unless **Remote Access** (`dashboard.allowPublic`) is on. Remote access can only be turned on while dashboard HTTPS is on, turning HTTPS off turns it off, and outside clients are refused over plain HTTP even if a hand-edited config says otherwise. Outside visitors get HSTS and `/api/session` tells signed-out strangers neither the hostname nor the version. `sudo autonode remote off` is the escape hatch.
+- First-run password creation requires the setup code printed by the installer, and a device on the home network.
+- Passwords use scrypt; sessions are HMAC-signed cookies (`HttpOnly`, `SameSite=Strict`); changing the password or "Sign out everywhere" rotates the signing secret.
+- Mutating requests with a foreign `Origin` (or, without `Origin`, a cross-site `Sec-Fetch-Site`) are rejected; strict CSP and `X-Frame-Options: DENY` on all pages.
+- Login lockouts escalate per address (5 → 1 min, 10 → 15 min, 20+ → 1 h). 30 wrong passwords from the internet within 15 minutes pause *outside* sign-ins for 15 minutes; home-network sign-ins keep working.
 - Websites run unprivileged; secrets (`config.json`, keys, env files) are root-only (`0600`).
-- File operations resolve real paths and refuse anything outside the site folder.
+- File operations resolve real paths and refuse anything outside the site folder. Because the website's own code can change its folder at any time, root opens files with `O_NOFOLLOW`, checks where the opened descriptor really is (`/proc/self/fd`), and writes through a fresh random temp file (`O_EXCL`) that is renamed into place — never through a path the website could have turned into a symlink.
+
+## Data reliability
+
+- `config.json` and every state file (deploy history, task runs, visitor stats, snapshot metadata, certificates) are written with `writeFileAtomic()`: temp file → `fsync` → rename → `fsync` of the folder, so a crash or power cut leaves the old or the new version, never half a file.
+- Before each config save the current file is kept as `config.json.bak`. If `config.json` can't be parsed at startup, AutoNode restores the `.bak`, keeps the damaged file as `config.json.damaged-<time>`, and logs it.
+- `config.update()` is all-or-nothing: if the change throws or the disk is full, the in-memory settings are rolled back too.
+- Damaged visitor-stat files are set aside instead of being overwritten; deleting a website also clears its in-memory stats, health state, icon and disk-usage caches.
+- Edited and uploaded website files are replaced atomically and keep their permissions.
 
 ## Dev mode
 

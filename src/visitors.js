@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as config from './config.js';
+import { writeFileAtomic } from './util.js';
 
 const DAYS_KEPT = 90;
 const HOURS_KEPT = 48;
@@ -31,10 +32,13 @@ function load(name) {
   let d = null;
   try {
     d = JSON.parse(fs.readFileSync(fileFor(name), 'utf8'));
-  } catch {}
-  d = d && typeof d === 'object' ? d : {};
-  d.days ||= {};
-  d.hours ||= {};
+  } catch (err) {
+    // Keep a damaged file for inspection instead of silently overwriting it on the next flush.
+    if (err.code !== 'ENOENT') fs.renameSync(fileFor(name), `${fileFor(name)}.damaged-${Date.now()}`);
+  }
+  d = d && typeof d === 'object' && !Array.isArray(d) ? d : {};
+  for (const k of ['days', 'hours']) if (!d[k] || typeof d[k] !== 'object') d[k] = {};
+  if (!Array.isArray(d.today?.seen)) d.today = null;
   if (!d.today || d.today.date !== dayKey()) d.today = { date: dayKey(), salt: crypto.randomBytes(16).toString('hex'), seen: [] };
   d._seen = new Set(d.today.seen);
   sites.set(name, d);
@@ -120,7 +124,8 @@ export function flush() {
     d.today.seen = [...d._seen];
     const { _seen, ...plain } = d;
     try {
-      fs.writeFileSync(fileFor(name), JSON.stringify(plain), { mode: 0o600 });
+      fs.mkdirSync(config.paths.visitorsDir, { recursive: true, mode: 0o700 });
+      writeFileAtomic(fileFor(name), JSON.stringify(plain));
     } catch (err) {
       console.error('[visitors]', err.message);
     }

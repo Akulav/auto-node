@@ -8,6 +8,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import * as config from './config.js';
 import { HttpError } from './util.js';
@@ -91,13 +92,23 @@ export function discard(id) {
   fs.rmSync(fileFor(id), { force: true });
 }
 
-/** Move a file, falling back to copy when crossing filesystems. */
+/**
+ * Move a file, falling back to copy when crossing filesystems. The copy goes to a fresh
+ * temp name first (never through a symlink at `to`) and replaces `to` in one step.
+ */
 export function moveFile(from, to) {
   try {
     fs.renameSync(from, to);
   } catch (err) {
     if (err.code !== 'EXDEV') throw err;
-    fs.copyFileSync(from, to);
+    const tmp = `${to}.${crypto.randomBytes(6).toString('hex')}.autonode-tmp`;
+    try {
+      fs.copyFileSync(from, tmp, fs.constants.COPYFILE_EXCL);
+      fs.renameSync(tmp, to);
+    } catch (e) {
+      fs.rmSync(tmp, { force: true });
+      throw e;
+    }
     fs.rmSync(from, { force: true });
   }
 }

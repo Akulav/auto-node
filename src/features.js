@@ -1,7 +1,7 @@
 /**
  * Dashboard API for: snapshots & rollback, deploy history, health checks,
  * traffic rules (www, redirects, maintenance, password), visitor stats,
- * scheduled tasks, disk usage, scheduled backups, activity log, dashboard HTTPS.
+ * scheduled tasks, disk usage, activity log. (Settings-page routes live in settings.js.)
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,11 +13,9 @@ import * as health from './health.js';
 import * as traffic from './traffic.js';
 import * as visitors from './visitors.js';
 import * as tasks from './tasks.js';
-import * as backup from './backup.js';
 import * as activity from './activity.js';
 import * as deploy from './deploy.js';
 import * as cf from './cloudflare.js';
-import * as dashtls from './dashtls.js';
 import { folderSize } from './files.js';
 import { HttpError } from './util.js';
 
@@ -51,7 +49,7 @@ export function usage(name, { fresh = false } = {}) {
 
 /* --------------------------------------------------------------- routes */
 
-export function register(on, { q, stageBackup }) {
+export function register(on, { q }) {
   const site = (p) => sites.getSite(p.name);
 
   // Snapshots & rollback
@@ -155,38 +153,11 @@ export function register(on, { q, stageBackup }) {
     return { freed: before, reinstalling: !!body.reinstall };
   });
 
-  // Scheduled backups
-  on('GET', '/api/backups', async () => ({ settings: backup.scheduleSettings(), backups: backup.listStored(), running: backup.isBackupRunning() }));
-  on('PATCH', '/api/backups', async (req, res, p, body) => backup.setSchedule(body));
-  on('POST', '/api/backups/run', async () => {
-    backup.runNow({ kind: 'manual' }).catch(() => {});
-    return { started: true };
-  });
-  on('GET', '/api/backups/:file', async (req, res, p) => {
-    const file = backup.storedFile(p.file);
-    const size = fs.statSync(file).size;
-    res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Length': size, 'Content-Disposition': `attachment; filename="${p.file}"`, 'Cache-Control': 'no-store' });
-    fs.createReadStream(file).pipe(res);
-    return undefined;
-  });
-  on('DELETE', '/api/backups/:file', async (req, res, p) => (fs.rmSync(backup.storedFile(p.file)), { ok: true }));
-  on('POST', '/api/backups/:file/prepare', async (req, res, p) => {
-    // Restore works on a copy: restore() deletes the file it was given.
-    const copy = path.join(config.paths.tmpDir, `stored-${Date.now()}.tar.gz`);
-    fs.copyFileSync(backup.storedFile(p.file), copy);
-    return stageBackup(copy);
-  });
-
   // Activity log
   on('GET', '/api/activity', async (req) => ({ entries: activity.list({ limit: Math.min(500, Number(q(req).get('limit')) || 200), site: q(req).get('site') || null, before: q(req).get('before') || null }) }));
+}
 
-  // Dashboard HTTPS
-  on('GET', '/api/dashboard-cert', async (req, res) => {
-    const cert = dashtls.certPem();
-    if (!cert) throw new HttpError(404, 'Turn on HTTPS for the dashboard first.');
-    res.writeHead(200, { 'Content-Type': 'application/x-x509-ca-cert', 'Content-Disposition': 'attachment; filename="autonode-dashboard.crt"', 'Cache-Control': 'no-store' });
-    res.end(cert);
-    return undefined;
-  });
-  on('POST', '/api/dashboard-cert/regenerate', async () => (await dashtls.ensureCert({ force: true }), dashtls.info()));
+/** Drop everything cached in memory for a website that was deleted. */
+export function forgetSite(name) {
+  usageCache.delete(name);
 }
