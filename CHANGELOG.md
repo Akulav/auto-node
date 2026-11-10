@@ -10,10 +10,13 @@ All notable changes to AutoNode are documented here. The format follows [Keep a 
 - **Stronger sign-in protection.** Lockouts escalate per address (5 wrong passwords → 1 minute, 10 → 15 minutes, 20+ → 1 hour). 30 wrong passwords from the internet within 15 minutes pause outside sign-ins for 15 minutes, while sign-ins at home keep working. Failed and successful sign-ins from the internet are marked in Activity.
 - **Sign out everywhere** (Settings → Security) ends every session on every device.
 - **Snapshots per website** can be chosen in Settings → Web Server.
+- **Clear older activity.** Activity → Clear Older… removes entries from before a week ago, yesterday, today or a date you pick. A note that you cleared it is kept. Activity is now kept for 30 days and older entries are removed automatically every hour.
 
 ### Changed
 
 - **Settings are split into tabs** — General, Web Server, Backups, Export & Import, Security, Remote Access — each with its own address (`#/settings/security`…). A website's Settings tab is split into General, Environment, Health & Limits and Delete. Every tab fits on one screen: long lists (environment variables, saved backups, restore previews) scroll inside their card or open in a sheet.
+- **Domains fits on one screen.** The setup guide is a six-step checklist; each step's instructions open in a sheet. Cloudflare and Certificates sit side by side, with their lists scrolling inside.
+- **Activity fits on one screen.** The log scrolls in its own box with sticky day headings and loads older entries as you reach the end.
 - Changing the password asks for the new one twice. Saving a website's name or build command no longer asks to restart; changing its port, start command, variables or memory limit still does.
 - Code: shared browser helpers moved to `public/ui.js`, the Settings page to `public/settings.js` and a website's settings to `public/site-settings.js`. Settings-page API routes moved from `server.js`/`features.js` to `src/settings.js`.
 

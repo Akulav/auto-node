@@ -1366,253 +1366,243 @@ async function siteGithub(site) {
 
 /* ========================================================== domains */
 
+const ext = (href, text) => h('a', { href, target: '_blank', rel: 'noopener' }, text);
+
+/** A sheet with step-by-step instructions (kept out of the page so it fits on one screen). */
+// A body part may be a function of `close`, for buttons that finish the job.
+const guideSheet = (title, ...body) => sheet((close) => h('div', { class: 'guide' }, h('h2', {}, title), ...body.map((b) => (typeof b === 'function' ? b(close) : b)), h('div',{ class: 'sheet-actions' }, h('button', { class: 'btn primary', onclick: close }, 'Done'))));
+
 async function domainsView() {
   const [cf, certs] = await Promise.all([api('GET', '/api/cloudflare'), api('GET', '/api/certs')]);
   const zones = cf.zones || [];
   const zoneHasCert = (z) => certs.some((c) => c.names.includes(z.name) || c.names.includes(`*.${z.name}`));
   const routerUrl = cf.lanIp ? `http://${cf.lanIp.replace(/\.\d+$/, '.1')}` : null;
+  const portsOk = cf.proxy?.http && cf.proxy?.https;
 
-  const tokenInput = h('input', { class: 'input', type: 'password', placeholder: 'Paste your API token', autocomplete: 'off' });
-  const connectForm = h(
-    'form',
-    {
-      class: 'input-row',
-      onsubmit: async (e) => {
-        e.preventDefault();
-        await busy(e.target.querySelector('button'), async () => {
-          const r = await api('POST', '/api/cloudflare/connect', { token: tokenInput.value });
-          toast(`Connected ✓ Found ${r.zones.length} domain${r.zones.length === 1 ? '' : 's'}: ${r.zones.join(', ')}`);
-          render();
-        });
-      },
-    },
-    tokenInput,
-    h('button', { class: 'btn primary' }, 'Connect'),
-  );
+  /* ---- sheets with the detailed instructions ---- */
 
-  const certSheet = () =>
-    sheet(
-      (close) => {
-        let cert, key;
-        return h(
-          'form',
-          {
-            onsubmit: async (e) => {
-              e.preventDefault();
-              await busy(e.target.querySelector('.primary'), async () => {
-                const r = await api('POST', '/api/certs', { cert: cert.value, key: key.value });
-                toast(`Certificate installed for ${r.names.join(', ')} ✓`);
-                close();
-                render();
-              });
-            },
-          },
-          h('h2', {}, 'Add Certificate'),
-          h('p', { class: 'muted' }, 'Paste the two boxes Cloudflare shows after you create an Origin Certificate.'),
-          h('div', { class: 'form', style: 'margin-top:16px' }, h('label', { class: 'field' }, 'Origin Certificate', (cert = h('textarea', { class: 'input', placeholder: '-----BEGIN CERTIFICATE-----', required: true }))), h('label', { class: 'field' }, 'Private Key', (key = h('textarea', { class: 'input', placeholder: '-----BEGIN PRIVATE KEY-----', required: true })))),
-          h('div', { class: 'sheet-actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), h('button', { class: 'btn primary' }, 'Install Certificate')),
-        );
-      },
-      { wide: false },
+  const registrarHelp = () =>
+    guideSheet(
+      'Have your domain on Cloudflare',
+      h('p', {}, 'Bought it on ', h('b', {}, 'Cloudflare Registrar'), "? It's already set up — nothing to do. Several domains can all live on this computer."),
+      h('h3', {}, 'Bought it somewhere else (GoDaddy, Namecheap…)?'),
+      h(
+        'ol',
+        {},
+        h('li', {}, 'Go to ', ext('https://dash.cloudflare.com', 'dash.cloudflare.com'), ' → ', h('b', {}, 'Add a domain'), ', type your domain, choose the ', h('b', {}, 'Free'), ' plan.'),
+        h('li', {}, 'Cloudflare shows two ', h('b', {}, 'nameservers'), '. At your registrar, replace the existing nameservers with those two.'),
+        h('li', {}, 'Wait until Cloudflare emails you that the domain is active (minutes to a few hours).'),
+      ),
     );
 
-  const autoCert = (z) => async (e) =>
-    busy(e.currentTarget, async () => {
-      const r = await api('POST', '/api/cloudflare/origin-cert', { domain: z.name });
-      toast(`Certificate created for ${r.names.join(', ')} ✓${r.strict ? ' · SSL set to Full (strict)' : ''}`);
-      render();
+  const connectSheet = () =>
+    sheet((close) => {
+      const token = h('input', { class: 'input', type: 'password', placeholder: 'Paste your API token', autocomplete: 'off', required: true });
+      return h(
+        'form',
+        {
+          class: 'guide',
+          onsubmit: async (e) => {
+            e.preventDefault();
+            await busy(e.target.querySelector('.primary'), async () => {
+              const r = await api('POST', '/api/cloudflare/connect', { token: token.value });
+              close();
+              toast(`Connected ✓ Found ${r.zones.length} domain${r.zones.length === 1 ? '' : 's'}: ${r.zones.join(', ')}`);
+              render();
+            });
+          },
+        },
+        h('h2', {}, 'Connect Cloudflare'),
+        h('p', {}, 'This lets AutoNode create DNS records and HTTPS certificates for you. Create an ', h('b', {}, 'API token'), ':'),
+        h(
+          'ol',
+          {},
+          h('li', {}, 'Open ', ext('https://dash.cloudflare.com/profile/api-tokens', 'dash.cloudflare.com/profile/api-tokens'), ' and click ', h('b', {}, 'Create Token'), '.'),
+          h('li', {}, 'Next to ', h('b', {}, 'Edit zone DNS'), ' click ', h('b', {}, 'Use template'), '.'),
+          h('li', {}, 'Under ', h('b', {}, 'Permissions'), ' click ', h('b', {}, '+ Add more'), ' and add ', h('b', {}, 'Zone → SSL and Certificates → Edit'), ', ', h('b', {}, 'Zone → Zone Settings → Edit'), ' and ', h('b', {}, 'Zone → Zone → Read'), '.'),
+          h('li', {}, 'Under ', h('b', {}, 'Zone Resources'), ' choose ', h('b', {}, 'Include → All zones'), '.'),
+          h('li', {}, 'Click ', h('b', {}, 'Continue to summary'), ' → ', h('b', {}, 'Create Token'), ', then copy it and paste it here.'),
+        ),
+        h('label', { class: 'field', style: 'margin-top:14px' }, 'API token', token),
+        h('p', { class: 'small muted', style: 'margin-top:6px' }, 'The token is stored only on this computer.'),
+        h('div', { class: 'sheet-actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), h('button', { class: 'btn primary' }, 'Connect')),
+      );
     });
 
-  const portsOk = cf.proxy?.http && cf.proxy?.https;
-  const doneCF = cf.connected;
-  const doneCert = certs.length > 0;
+  const reachHelp = () =>
+    guideSheet(
+      'Let visitors reach this computer',
+      h('p', {}, 'Your router needs to send website traffic to this computer. Choose one option:'),
+      h('h3', {}, 'Port forwarding ', h('span', { class: 'pill info' }, 'Most common')),
+      h(
+        'ol',
+        {},
+        h('li', {}, "Open your router's settings", routerUrl ? [' (usually ', ext(routerUrl, routerUrl), ')'] : '', ' and sign in. The password is often on a sticker on the router.'),
+        h('li', {}, 'Find ', h('b', {}, 'Port Forwarding'), ' (sometimes called Virtual Server, NAT or Gaming).'),
+        h('li', {}, 'Add two rules to ', h('b', {}, cf.lanIp), ': TCP port ', h('b', {}, '80 → 80'), ' and TCP port ', h('b', {}, '443 → 443'), '.'),
+        h('li', {}, 'Give this computer a ', h('a', { href: '#/network' }, 'fixed address'), ' so the rules keep working.'),
+      ),
+      h('h3', {}, 'Cloudflare Tunnel ', h('span', { class: 'pill' }, 'No router access')),
+      h(
+        'ol',
+        {},
+        h('li', {}, 'Open ', ext('https://one.dash.cloudflare.com', 'Cloudflare Zero Trust'), ' → ', h('b', {}, 'Networks → Tunnels → Create a tunnel'), ' → Cloudflared.'),
+        h('li', {}, 'Choose ', h('b', {}, 'Debian'), ' and run the install command it shows on this computer.'),
+        h('li', {}, 'Add a ', h('b', {}, 'Public hostname'), ' for each domain: Service ', h('b', {}, 'HTTP'), ', URL ', h('b', {}, 'localhost:80'), '.'),
+        h('li', {}, 'Turn off “Keep DNS updated automatically” — the tunnel manages DNS.'),
+      ),
+    );
+
+  const certSheet = () =>
+    sheet((close) => {
+      let cert, key;
+      return h(
+        'form',
+        {
+          class: 'guide',
+          onsubmit: async (e) => {
+            e.preventDefault();
+            await busy(e.target.querySelector('.primary'), async () => {
+              const r = await api('POST', '/api/certs', { cert: cert.value, key: key.value });
+              toast(`Certificate installed for ${r.names.join(', ')} ✓`);
+              close();
+              render();
+            });
+          },
+        },
+        h('h2', {}, 'Paste a certificate'),
+        h(
+          'details',
+          { class: 'more' },
+          h('summary', {}, 'How to create one in Cloudflare'),
+          h(
+            'div',
+            {},
+            h(
+              'ol',
+              {},
+              h('li', {}, 'Open your domain → ', h('b', {}, 'SSL/TLS'), ' → ', h('b', {}, 'Origin Server'), ' → ', h('b', {}, 'Create Certificate'), '.'),
+              h('li', {}, 'Keep ', h('b', {}, 'Generate private key and CSR with Cloudflare'), ', key type ', h('b', {}, 'RSA (2048)'), '.'),
+              h('li', {}, 'Hostnames: ', h('b', {}, '*.yourdomain.com'), ' and ', h('b', {}, 'yourdomain.com'), '. Validity ', h('b', {}, '15 years'), '. Click ', h('b', {}, 'Create'), '.'),
+              h('li', {}, 'Copy both boxes below. The key is shown only once.'),
+            ),
+          ),
+        ),
+        h('div', { class: 'form', style: 'margin-top:14px' }, h('label', { class: 'field' }, 'Origin Certificate', (cert = h('textarea', { class: 'input', placeholder: '-----BEGIN CERTIFICATE-----', required: true }))), h('label', { class: 'field' }, 'Private Key', (key = h('textarea', { class: 'input', placeholder: '-----BEGIN PRIVATE KEY-----', required: true })))),
+        h('div', { class: 'sheet-actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), h('button', { class: 'btn primary' }, 'Install Certificate')),
+      );
+    });
+
+  const httpsSheet = () =>
+    guideSheet(
+      'Turn on HTTPS (the padlock)',
+      h('p', {}, 'A free Cloudflare ', h('b', {}, 'Origin Certificate'), ' encrypts traffic between Cloudflare and this computer. It lasts 15 years.'),
+      cf.connected && zones.length
+        ? (close) => h(
+            'div',
+            { class: 'list scroll-y', style: 'margin-top:14px;box-shadow:none' },
+            zones.map((z) =>
+              h(
+                'div',
+                { class: 'item' },
+                h('div', { class: 'grow' }, h('div', { class: 'label' }, z.name), h('div', { class: 'small muted' }, `Covers ${z.name} and *.${z.name}`)),
+                zoneHasCert(z)
+                  ? h('span', { class: 'pill good' }, icon('lock'), 'Installed')
+                  : h('button', { class: 'btn primary sm', onclick: (e) => busy(e.currentTarget, async () => { const r = await api('POST', '/api/cloudflare/origin-cert', { domain: z.name }); toast(`Certificate created for ${r.names.join(', ')} ✓${r.strict ? ' · SSL set to Full (strict)' : ''}`); close(); render(); }) }, 'Create Automatically'),
+              ),
+            ),
+          )
+        : h('p', { class: 'small muted', style: 'margin-top:8px' }, 'Connect Cloudflare and AutoNode can create it for you, or paste one by hand.'),
+      h('button', { class: 'btn', style: 'margin-top:14px', onclick: certSheet }, icon('lock'), 'Paste a Certificate by Hand'),
+    );
+
+  const strictSheet = () =>
+    guideSheet(
+      'Set encryption to Full (strict)',
+      h('p', {}, 'In Cloudflare: your domain → ', h('b', {}, 'SSL/TLS'), ' → ', h('b', {}, 'Overview'), ' → ', h('b', {}, 'Configure'), ' → choose ', h('b', {}, 'Full (strict)'), '. This prevents redirect loops and keeps things secure.'),
+      cf.connected && zones.length > 0 && [h('p', { style: 'margin-top:12px' }, 'Or let AutoNode do it:'), h('div', { class: 'row wrap', style: 'margin-top:8px' }, zones.map((z) => h('button', { class: 'btn sm', onclick: (e) => busy(e.currentTarget, async () => (await api('POST', '/api/cloudflare/strict', { domain: z.name }), toast(`${z.name} set to Full (strict) ✓`))) }, `Set for ${z.name}`)))],
+    );
+
+  /* ---- the page ---- */
+
+  const step = (n, done, title, text, action) =>
+    h('div', { class: 'item' }, h('span', { class: `step-dot ${done ? 'done' : ''}`, 'aria-label': done ? 'Done' : `Step ${n}` }, done ? '✓' : n), h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label' }, title), h('div', { class: 'small muted' }, text)), action);
+  const how = (fn, label = 'How?') => h('button', { class: 'btn sm', onclick: fn }, label);
+
+  const statusCell = (label, value, sub) => h('div', {}, h('div', { class: 'metric-label' }, label), h('div', { class: 'status-value' }, value), h('div', { class: 'small muted ellipsis' }, sub));
+
+  const cloudflareCard = cf.connected
+    ? h(
+        'div',
+        { class: 'card' },
+        h('div', { class: 'section-head' }, h('h3', {}, 'Cloudflare'), h('button', { class: 'btn sm danger', onclick: async () => (await confirmSheet({ title: 'Disconnect Cloudflare?', text: 'Existing DNS records stay in Cloudflare, but AutoNode will stop updating them.', ok: 'Disconnect', danger: true })) && (await api('DELETE', '/api/cloudflare'), render()) }, 'Disconnect')),
+        h(
+          'div',
+          { class: 'list flat scroll-y short' },
+          zones.length ? zones.map((z) => h('div', { class: 'item' }, h('div', { class: 'app-icon', style: { background: 'linear-gradient(135deg,#ff9f0a,#ff6a00)' } }, icon('cloud')), h('div', { class: 'grow' }, h('div', { class: 'label' }, z.name), h('div', { class: 'small muted' }, `${z.plan || ''} · ${z.status}`)), h('span', { class: `pill ${z.status === 'active' ? 'good' : 'warn'}` }, z.status === 'active' ? 'Active' : 'Pending'))) : h('div', { class: 'item small muted' }, 'No domains in this Cloudflare account yet.'),
+        ),
+        cf.zonesError && notice('bad', cf.zonesError),
+        h(
+          'div',
+          { class: 'row', style: 'margin-top:10px' },
+          h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Keep DNS updated automatically'), h('div', { class: 'small muted' }, `Every 5 minutes · last ${fmtAgo(cf.lastSync)}${cf.lastIp ? ` → ${cf.lastIp}` : ''}`)),
+          h('button', { class: 'btn sm', onclick: async (e) => busy(e.currentTarget, async () => (await api('POST', '/api/cloudflare/sync'), toast('DNS updated ✓'), render())) }, 'Update Now'),
+          toggle(cf.ddns, async (v) => (await api('PATCH', '/api/cloudflare', { ddns: v }), toast(v ? 'Automatic DNS on' : 'Automatic DNS off')), 'Automatic DNS'),
+        ),
+        cf.lastError && h('div', { style: 'margin-top:10px' }, notice('bad', h('b', {}, 'Last DNS update had problems: '), cf.lastError)),
+      )
+    : h('div', { class: 'card' }, h('h3', {}, 'Cloudflare'), h('p', { class: 'small muted', style: 'margin:6px 0 12px' }, 'Not connected. Connect it and AutoNode creates DNS records and certificates for you, and keeps your domains pointed at home when your internet address changes.'), h('button', { class: 'btn primary sm', onclick: connectSheet }, icon('cloud'), 'Connect Cloudflare…'));
+
+  const certCard = h(
+    'div',
+    { class: 'card' },
+    h('div', { class: 'section-head' }, h('h3', {}, 'Certificates'), h('button', { class: 'btn sm', onclick: certSheet }, icon('plus'), 'Add')),
+    h(
+      'div',
+      { class: 'list flat scroll-y short' },
+      !certs.length && h('div', { class: 'item small muted' }, 'No certificates yet.'),
+      certs.map((c) =>
+        h(
+          'div',
+          { class: 'item' },
+          h('div', { class: 'app-icon', style: { background: c.expired ? '#ff3b30' : '#34c759' } }, icon('lock')),
+          h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label ellipsis', title: c.names.join(', ') }, c.names.join(', ')), h('div', { class: 'small muted' }, `${c.issuer} · ${c.expired ? 'expired' : 'valid until'} ${new Date(c.validTo).toLocaleDateString()}`)),
+          h('button', { class: 'btn sm danger', onclick: async () => (await confirmSheet({ title: 'Remove certificate?', text: `HTTPS will stop working for ${c.names.join(', ')} until you add another.`, ok: 'Remove', danger: true })) && (await api('DELETE', `/api/certs/${c.id}`), render()) }, 'Remove'),
+        ),
+      ),
+    ),
+  );
 
   return h(
     'div',
-    { class: 'page' },
+    { class: 'page domains' },
     pageHead('Domains', { sub: 'Put your websites on the internet with your own domain, like akulav.com.' }),
     h(
       'div',
-      { class: 'grid cols-3' },
-      h('div', { class: 'card' }, h('div', { class: 'metric-label' }, 'Your internet address'), h('div', { class: 'metric-big', style: 'margin-top:8px;font-size:24px' }, cf.publicIp || 'Unknown'), h('div', { class: 'metric-sub' }, 'Where visitors reach you (public IP)')),
-      h('div', { class: 'card' }, h('div', { class: 'metric-label' }, 'This computer at home'), h('div', { class: 'metric-big', style: 'margin-top:8px;font-size:24px' }, cf.lanIp), h('div', { class: 'metric-sub' }, h('a', { href: '#/network' }, 'Make this address permanent →'))),
-      h('div', { class: 'card' }, h('div', { class: 'metric-label' }, 'Web traffic'), h('div', { class: 'row', style: 'margin-top:10px' }, h('span', { class: `pill ${cf.proxy?.http ? 'good' : 'bad'}` }, `HTTP ${cf.proxy?.http || 'off'}`), h('span', { class: `pill ${cf.proxy?.https ? 'good' : 'bad'}` }, `HTTPS ${cf.proxy?.https || 'off'}`)), h('div', { class: 'metric-sub', style: 'margin-top:8px' }, portsOk ? 'Ready to receive visitors' : cf.proxy?.httpError || cf.proxy?.httpsError)),
+      { class: 'card status-strip' },
+      statusCell('Your internet address', cf.publicIp || 'Unknown', 'Where visitors reach you'),
+      statusCell('This computer at home', cf.lanIp, h('a', { href: '#/network' }, 'Make it permanent →')),
+      statusCell('Web traffic', h('span', { class: 'row', style: 'gap:6px' }, h('span', { class: `pill ${cf.proxy?.http ? 'good' : 'bad'}` }, `HTTP ${cf.proxy?.http || 'off'}`), h('span', { class: `pill ${cf.proxy?.https ? 'good' : 'bad'}` }, `HTTPS ${cf.proxy?.https || 'off'}`)), portsOk ? 'Ready to receive visitors' : cf.proxy?.httpError || cf.proxy?.httpsError),
     ),
-
     h(
       'div',
-      { class: 'section' },
-      h('h2', {}, 'Set up your domain'),
-      h('p', { class: 'muted', style: 'margin:4px 0 22px' }, 'Follow these steps once. It takes about 5 minutes.'),
+      { class: 'grid cols-2 domains-grid' },
       h(
         'div',
-        { class: 'card pad-lg' },
+        {},
+        h('div', { class: 'section-head' }, h('h2', {}, 'Set up your domain'), h('span', { class: 'small muted' }, 'Once, about 5 minutes')),
         h(
           'div',
-          { class: 'steps' },
-          h(
-            'div',
-            { class: `step ${zones.length ? 'done' : ''}` },
-            h('h3', {}, 'Have your domain on Cloudflare'),
-            h('p', {}, 'Bought it on ', h('b', {}, 'Cloudflare Registrar'), '? It\'s already set up — nothing to do here. Have several domains? They can all live on this computer; each one shows up below.'),
-            h(
-              'details',
-              { class: 'more' },
-              h('summary', {}, 'Bought it somewhere else (GoDaddy, Namecheap…)?'),
-              h(
-                'div',
-                {},
-                h(
-                  'ol',
-                  {},
-                  h('li', {}, 'Go to ', h('a', { href: 'https://dash.cloudflare.com', target: '_blank', rel: 'noopener' }, 'dash.cloudflare.com'), ' → ', h('b', {}, 'Add a domain'), ', type your domain, choose the ', h('b', {}, 'Free'), ' plan.'),
-                  h('li', {}, 'Cloudflare shows two ', h('b', {}, 'nameservers'), '. At your registrar, replace the existing nameservers with those two.'),
-                  h('li', {}, 'Wait until Cloudflare emails you that the domain is active (minutes to a few hours).'),
-                ),
-              ),
-            ),
-          ),
-          h(
-            'div',
-            { class: `step ${doneCF ? 'done' : ''}` },
-            h('h3', {}, 'Connect your Cloudflare account'),
-            doneCF
-              ? h(
-                  'div',
-                  {},
-                  h('p', {}, 'Connected. AutoNode creates DNS records for you and keeps them pointed at your home even if your internet address changes.'),
-                  h(
-                    'div',
-                    { class: 'list', style: 'margin-top:12px' },
-                    zones.map((z) => h('div', { class: 'item' }, h('div', { class: 'app-icon', style: { background: 'linear-gradient(135deg,#ff9f0a,#ff6a00)' } }, icon('cloud')), h('div', { class: 'grow' }, h('div', { class: 'label' }, z.name), h('div', { class: 'small muted' }, `${z.plan || ''} · ${z.status}`)), h('span', { class: `pill ${z.status === 'active' ? 'good' : 'warn'}` }, z.status === 'active' ? 'Active' : 'Pending'))),
-                    cf.zonesError && h('div', { class: 'item' }, notice('bad', cf.zonesError)),
-                    h(
-                      'div',
-                      { class: 'item' },
-                      h('div', { class: 'grow' }, h('div', { class: 'label' }, 'Keep DNS updated automatically'), h('div', { class: 'small muted' }, `Checks every 5 minutes · last update ${fmtAgo(cf.lastSync)}${cf.lastIp ? ` → ${cf.lastIp}` : ''}`)),
-                      h('button', { class: 'btn sm', onclick: async (e) => busy(e.currentTarget, async () => (await api('POST', '/api/cloudflare/sync'), toast('DNS updated ✓'), render())) }, 'Update Now'),
-                      toggle(cf.ddns, async (v) => (await api('PATCH', '/api/cloudflare', { ddns: v }), toast(v ? 'Automatic DNS on' : 'Automatic DNS off')), 'Automatic DNS'),
-                    ),
-                  ),
-                  cf.lastError && h('div', { style: 'margin-top:10px' }, notice('bad', h('b', {}, 'Last DNS update had problems: '), cf.lastError)),
-                  h('button', { class: 'btn sm danger', style: 'margin-top:12px', onclick: async () => (await confirmSheet({ title: 'Disconnect Cloudflare?', text: 'Existing DNS records stay in Cloudflare, but AutoNode will stop updating them.', ok: 'Disconnect', danger: true })) && (await api('DELETE', '/api/cloudflare'), render()) }, 'Disconnect'),
-                )
-              : h(
-                  'div',
-                  {},
-                  h('p', {}, 'This lets AutoNode create DNS records and HTTPS certificates for you. Create an ', h('b', {}, 'API token'), ':'),
-                  h(
-                    'ol',
-                    {},
-                    h('li', {}, 'Open ', h('a', { href: 'https://dash.cloudflare.com/profile/api-tokens', target: '_blank', rel: 'noopener' }, 'dash.cloudflare.com/profile/api-tokens'), ' and click ', h('b', {}, 'Create Token'), '.'),
-                    h('li', {}, 'Next to ', h('b', {}, 'Edit zone DNS'), ' click ', h('b', {}, 'Use template'), '.'),
-                    h('li', {}, 'Under ', h('b', {}, 'Permissions'), ' click ', h('b', {}, '+ Add more'), ' and add:', h('ul', {}, h('li', {}, h('b', {}, 'Zone → SSL and Certificates → Edit')), h('li', {}, h('b', {}, 'Zone → Zone Settings → Edit')), h('li', {}, h('b', {}, 'Zone → Zone → Read')))),
-                    h('li', {}, 'Under ', h('b', {}, 'Zone Resources'), ' choose ', h('b', {}, 'Include → All zones'), ' (or just akulav.com).'),
-                    h('li', {}, 'Click ', h('b', {}, 'Continue to summary'), ' → ', h('b', {}, 'Create Token'), ', then copy it and paste below.'),
-                  ),
-                  h('div', { style: 'margin-top:14px' }, connectForm),
-                  h('p', { class: 'small muted', style: 'margin-top:8px' }, 'The token is stored only on this computer.'),
-                ),
-          ),
-          h(
-            'div',
-            { class: 'step' },
-            h('h3', {}, 'Let visitors reach this computer'),
-            h('p', {}, 'Your router needs to send website traffic to this computer. Choose one option:'),
-            h(
-              'div',
-              { class: 'grid cols-2' },
-              h(
-                'div',
-                { class: 'card' },
-                h('span', { class: 'pill info' }, 'Most common'),
-                h('h3', { style: 'margin:10px 0 6px' }, 'Port forwarding'),
-                h(
-                  'ol',
-                  { class: 'small' },
-                  h('li', {}, 'Open your router\'s settings', routerUrl ? [' (usually ', h('a', { href: routerUrl, target: '_blank', rel: 'noopener' }, routerUrl), ')'] : '', ' and sign in. The password is often on a sticker on the router.'),
-                  h('li', {}, 'Find ', h('b', {}, 'Port Forwarding'), ' (sometimes called Virtual Server, NAT or Gaming).'),
-                  h('li', {}, 'Add two rules to ', h('b', {}, cf.lanIp), ': TCP port ', h('b', {}, '80 → 80'), ' and TCP port ', h('b', {}, '443 → 443'), '.'),
-                  h('li', {}, 'Give this computer a ', h('a', { href: '#/network' }, 'fixed address'), ' so the rules keep working.'),
-                ),
-              ),
-              h(
-                'div',
-                { class: 'card' },
-                h('span', { class: 'pill' }, 'No router access'),
-                h('h3', { style: 'margin:10px 0 6px' }, 'Cloudflare Tunnel'),
-                h(
-                  'ol',
-                  { class: 'small' },
-                  h('li', {}, 'Open ', h('a', { href: 'https://one.dash.cloudflare.com', target: '_blank', rel: 'noopener' }, 'Cloudflare Zero Trust'), ' → ', h('b', {}, 'Networks → Tunnels → Create a tunnel'), ' → Cloudflared.'),
-                  h('li', {}, 'Choose ', h('b', {}, 'Debian'), ' and run the install command it shows on this computer.'),
-                  h('li', {}, 'Add a ', h('b', {}, 'Public hostname'), ' for each domain: Service ', h('b', {}, 'HTTP'), ', URL ', h('b', {}, 'localhost:80'), '.'),
-                  h('li', {}, 'Turn off “Keep DNS updated automatically” above — the tunnel manages DNS.'),
-                ),
-              ),
-            ),
-          ),
-          h(
-            'div',
-            { class: `step ${doneCert ? 'done' : ''}` },
-            h('h3', {}, 'Turn on HTTPS (the padlock)'),
-            h('p', {}, 'A free Cloudflare ', h('b', {}, 'Origin Certificate'), ' encrypts traffic between Cloudflare and this computer. It lasts 15 years.'),
-            doneCF && zones.length
-              ? h(
-                  'div',
-                  { class: 'list', style: 'margin-top:12px' },
-                  zones.map((z) => h('div', { class: 'item' }, h('div', { class: 'grow' }, h('div', { class: 'label' }, z.name), h('div', { class: 'small muted' }, `Covers ${z.name} and *.${z.name}`)), zoneHasCert(z) ? h('span', { class: 'pill good' }, icon('lock'), 'Installed') : h('button', { class: 'btn primary sm', onclick: autoCert(z) }, 'Create Automatically'))),
-                )
-              : null,
-            h(
-              'details',
-              { class: 'more', open: !doneCF },
-              h('summary', {}, doneCF ? 'Or paste a certificate by hand' : 'Create and paste a certificate'),
-              h(
-                'div',
-                {},
-                h(
-                  'ol',
-                  {},
-                  h('li', {}, 'In ', h('a', { href: 'https://dash.cloudflare.com', target: '_blank', rel: 'noopener' }, 'Cloudflare'), ', open your domain → ', h('b', {}, 'SSL/TLS'), ' → ', h('b', {}, 'Origin Server'), ' → ', h('b', {}, 'Create Certificate'), '.'),
-                  h('li', {}, 'Keep ', h('b', {}, 'Generate private key and CSR with Cloudflare'), ', key type ', h('b', {}, 'RSA (2048)'), '.'),
-                  h('li', {}, 'Hostnames should list ', h('b', {}, '*.akulav.com'), ' and ', h('b', {}, 'akulav.com'), ' (your domain). Validity ', h('b', {}, '15 years'), '. Click ', h('b', {}, 'Create'), '.'),
-                  h('li', {}, 'Copy the ', h('b', {}, 'Origin Certificate'), ' and ', h('b', {}, 'Private Key'), ' into AutoNode. The key is shown only once.'),
-                ),
-                h('button', { class: 'btn primary', style: 'margin-top:12px', onclick: certSheet }, icon('lock'), 'Paste Certificate'),
-              ),
-            ),
-          ),
-          h(
-            'div',
-            { class: 'step' },
-            h('h3', {}, 'Set encryption to Full (strict)'),
-            h('p', {}, 'In Cloudflare: your domain → ', h('b', {}, 'SSL/TLS'), ' → ', h('b', {}, 'Overview'), ' → ', h('b', {}, 'Configure'), ' → choose ', h('b', {}, 'Full (strict)'), '. This prevents redirect loops and keeps things secure.'),
-            doneCF && zones.length > 0 && h('div', { class: 'row wrap', style: 'margin-top:10px' }, zones.map((z) => h('button', { class: 'btn sm', onclick: async (e) => busy(e.currentTarget, async () => (await api('POST', '/api/cloudflare/strict', { domain: z.name }), toast(`${z.name} set to Full (strict) ✓`))) }, `Set for ${z.name}`))),
-          ),
-          h('div', { class: 'step' }, h('h3', {}, 'Connect a domain to a website'), h('p', {}, 'Open a website → ', h('b', {}, 'Domains'), ' and add akulav.com or a subdomain like blog.akulav.com. That\'s it — your site is live.'), h('a', { class: 'btn sm', href: '#/sites', style: 'margin-top:10px' }, 'Go to Websites')),
+          { class: 'list' },
+          step(1, zones.length > 0, 'Have your domain on Cloudflare', 'Bought on Cloudflare? Nothing to do.', how(registrarHelp)),
+          step(2, cf.connected, 'Connect your Cloudflare account', cf.connected ? 'Connected — DNS is managed for you.' : 'Lets AutoNode manage DNS and HTTPS.', cf.connected ? null : how(connectSheet, 'Connect…')),
+          step(3, false, 'Let visitors reach this computer', 'Port forwarding or a Cloudflare Tunnel.', how(reachHelp)),
+          step(4, certs.length > 0, 'Turn on HTTPS (the padlock)', 'A free 15-year Origin Certificate.', how(httpsSheet, certs.length ? 'Manage' : 'Set Up…')),
+          step(5, false, 'Set encryption to Full (strict)', 'One setting in Cloudflare.', how(strictSheet)),
+          step(6, false, 'Connect a domain to a website', 'Website → Domains & Access.', h('a', { class: 'btn sm', href: '#/sites' }, 'Websites')),
         ),
       ),
-    ),
-
-    h(
-      'div',
-      { class: 'section' },
-      h('div', { class: 'section-head' }, h('h2', {}, 'Certificates'), h('button', { class: 'btn sm', onclick: certSheet }, icon('plus'), 'Add')),
-      h(
-        'div',
-        { class: 'list' },
-        !certs.length && h('div', { class: 'item' }, h('div', { class: 'muted' }, 'No certificates yet.')),
-        certs.map((c) =>
-          h(
-            'div',
-            { class: 'item' },
-            h('div', { class: 'app-icon', style: { background: c.expired ? '#ff3b30' : '#34c759' } }, icon('lock')),
-            h('div', { class: 'grow' }, h('div', { class: 'label ellipsis' }, c.names.join(', ')), h('div', { class: 'small muted' }, `${c.issuer} · ${c.expired ? 'expired' : 'valid until'} ${new Date(c.validTo).toLocaleDateString()}`)),
-            h('button', { class: 'btn sm danger', onclick: async () => (await confirmSheet({ title: 'Remove certificate?', text: `HTTPS will stop working for ${c.names.join(', ')} until you add another.`, ok: 'Remove', danger: true })) && (await api('DELETE', `/api/certs/${c.id}`), render()) }, 'Remove'),
-          ),
-        ),
-      ),
+      h('div', { class: 'stack', style: 'gap:16px' }, cloudflareCard, certCard),
     ),
   );
 }
@@ -2251,14 +2241,44 @@ async function siteTasks(site) {
 
 /* ---- activity */
 
+const PAGE = 150;
+
 async function activityView() {
-  let entries = (await api('GET', '/api/activity?limit=150')).entries;
+  const first = await api('GET', `/api/activity?limit=${PAGE}`);
+  let entries = first.entries;
+  let hasMore = entries.length === PAGE;
+  let loading = false;
   let onlyProblems = false;
   const listBox = h('div', { class: 'stack', style: 'gap:18px' });
-  const more = h('button', { class: 'btn', onclick: async (e) => busy(e.currentTarget, async () => { const older = (await api('GET', `/api/activity?limit=150&before=${encodeURIComponent(entries.at(-1).at)}`)).entries; entries = entries.concat(older); if (older.length < 150) more.classList.add('hidden'); paint(); }) }, 'Show Older');
-  if (entries.length < 150) more.classList.add('hidden');
+  const more = h('button', { class: 'btn sm', onclick: (e) => busy(e.currentTarget, loadOlder) }, 'Show Older');
+  const footer = h('div', { class: 'center small muted', style: 'padding:14px 0 4px' });
+  const scroller = h('div', { class: 'activity-scroll', onscroll: () => hasMore && !loading && scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - 300 && loadOlder().catch(() => {}) }, listBox, footer);
+
+  async function loadOlder() {
+    if (loading || !entries.length) return;
+    loading = true;
+    try {
+      const older = (await api('GET', `/api/activity?limit=${PAGE}&before=${encodeURIComponent(entries.at(-1).at)}`)).entries;
+      entries = entries.concat(older);
+      hasMore = older.length === PAGE;
+      paint();
+    } finally {
+      loading = false;
+    }
+  }
+
+  const row = (e) =>
+    h(
+      'div',
+      { class: 'item' },
+      h('span', { class: `pill ${e.ok ? '' : 'bad'}`, style: 'min-width:54px;justify-content:center' }, new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
+      h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label ellipsis' }, e.action, e.site && h('a', { class: 'muted', href: `#/sites/${e.site}`, style: 'font-weight:400' }, ` · ${e.site}`)), e.detail && h('div', { class: 'small muted ellipsis', title: e.detail }, e.detail)),
+      h('span', { class: 'small muted', style: 'white-space:nowrap' }, e.by === 'you' ? `you${e.ip ? ` · ${e.ip}` : ''}` : e.by === 'someone' ? `someone · ${e.ip || '?'}` : e.by),
+    );
+
   const paint = () => {
     clear(listBox);
+    clear(footer).append(hasMore ? more : entries.length ? `That's everything from the last ${first.keepDays} days.` : '');
     const shown = onlyProblems ? entries.filter((e) => !e.ok) : entries;
     if (!shown.length) return listBox.append(h('div', { class: 'card empty' }, h('h2', {}, onlyProblems ? 'No problems' : 'Nothing yet'), h('p', {}, onlyProblems ? 'Nothing has failed recently.' : 'Changes, deploys, sign-ins and automatic actions show up here.')));
     const groups = new Map();
@@ -2268,40 +2288,69 @@ async function activityView() {
       groups.get(k).push(e);
     }
     for (const [day, items] of groups) {
-      const d = new Date(day);
       const today = new Date().toDateString() === day;
-      listBox.append(
-        h(
-          'div',
-          {},
-          h('div', { class: 'metric-label', style: 'margin:0 0 8px 4px' }, today ? 'Today' : d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })),
-          h(
-            'div',
-            { class: 'list' },
-            items.map((e) =>
-              h(
-                'div',
-                { class: 'item' },
-                h('span', { class: `pill ${e.ok ? '' : 'bad'}`, style: 'min-width:54px;justify-content:center' }, new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })),
-                h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label ellipsis' }, e.action, e.site && h('a', { class: 'muted', href: `#/sites/${e.site}`, style: 'font-weight:400' }, ` · ${e.site}`)), e.detail && h('div', { class: 'small muted ellipsis', title: e.detail }, e.detail)),
-                h('span', { class: 'small muted', style: 'white-space:nowrap' }, e.by === 'you' ? `you${e.ip ? ` · ${e.ip}` : ''}` : e.by === 'someone' ? `someone · ${e.ip || '?'}` : e.by),
-              ),
-            ),
-          ),
-        ),
-      );
+      listBox.append(h('div', {}, h('div', { class: 'metric-label day-head' }, today ? 'Today' : new Date(day).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })), h('div', { class: 'list' }, items.map(row))));
     }
   };
   paint();
+
   const seg = h(
     'div',
     { class: 'segmented' },
     [
       [false, 'Everything'],
       [true, 'Problems'],
-    ].map(([v, label]) => h('button', { class: v === onlyProblems ? 'on' : '', onclick: (e) => ((onlyProblems = v), [...seg.children].forEach((b) => b.classList.toggle('on', b === e.currentTarget)), paint()) }, label)),
+    ].map(([v, label]) => h('button', { class: v === onlyProblems ? 'on' : '', onclick: (e) => ((onlyProblems = v), [...seg.children].forEach((b) => b.classList.toggle('on', b === e.currentTarget)), paint(), (scroller.scrollTop = 0)) }, label)),
   );
-  return h('div', { class: 'page' }, pageHead('Activity', { sub: 'Who did what, and when — including automatic updates, health-check restarts, backups and sign-ins.', actions: seg }), listBox, h('div', { class: 'center', style: 'margin-top:18px' }, more));
+  return h(
+    'div',
+    { class: 'page activity' },
+    pageHead('Activity', { sub: `Who did what, and when — including automatic updates, health-check restarts, backups and sign-ins. Kept for ${first.keepDays} days.`, actions: [seg, h('button', { class: 'btn sm', onclick: () => clearActivitySheet(first.keepDays) }, icon('trash'), 'Clear Older…')] }),
+    scroller,
+  );
+}
+
+/** Choose a date and remove every activity entry from before it. */
+function clearActivitySheet(keepDays) {
+  const startOf = (daysAgo) => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - daysAgo);
+    return d;
+  };
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const choices = [
+    [7, 'Older than a week'],
+    [1, 'Everything before yesterday'],
+    [0, 'Everything before today'],
+  ];
+  sheet((close) => {
+    const date = h('input', { class: 'input', type: 'date', value: iso(startOf(7)), min: iso(startOf(keepDays)), max: iso(new Date()), required: true });
+    const run = (before, btn) =>
+      busy(btn, async () => {
+        const label = before.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+        if (!(await confirmSheet({ title: `Clear activity before ${label}?`, text: 'Those entries are removed for good. A note that you cleared them is kept.', ok: 'Clear', danger: true }))) return;
+        const r = await api('POST', '/api/activity/prune', { before: before.toISOString() });
+        close();
+        toast(r.removed ? `Removed ${r.removed} entr${r.removed === 1 ? 'y' : 'ies'} ✓` : 'Nothing that old to remove');
+        render();
+      });
+    return h(
+      'form',
+      {
+        onsubmit: (e) => {
+          e.preventDefault();
+          const [y, m, d] = date.value.split('-').map(Number);
+          if (y) run(new Date(y, m - 1, d), e.target.querySelector('.primary'));
+        },
+      },
+      h('h2', {}, 'Clear older activity'),
+      h('p', { class: 'muted', style: 'margin-top:6px' }, `Entries older than ${keepDays} days are removed automatically. You can clear more now.`),
+      h('div', { class: 'list', style: 'margin:16px 0;box-shadow:none' }, choices.map(([days, label]) => h('div', { class: 'item' }, h('div', { class: 'grow label' }, label), h('button', { class: 'btn sm danger', type: 'button', onclick: (e) => run(startOf(days), e.currentTarget) }, 'Clear')))),
+      h('label', { class: 'field' }, 'Or everything before a date', date),
+      h('div', { class: 'sheet-actions' }, h('button', { class: 'btn', type: 'button', onclick: close }, 'Cancel'), h('button', { class: 'btn primary' }, 'Clear Before Date')),
+    );
+  });
 }
 
 /* =========================================================== router */

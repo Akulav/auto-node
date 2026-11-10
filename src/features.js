@@ -154,7 +154,11 @@ export function register(on, { q }) {
   });
 
   // Activity log
-  on('GET', '/api/activity', async (req) => ({ entries: activity.list({ limit: Math.min(500, Number(q(req).get('limit')) || 200), site: q(req).get('site') || null, before: q(req).get('before') || null }) }));
+  on('GET', '/api/activity', async (req) => ({ entries: activity.list({ limit: Math.min(500, Number(q(req).get('limit')) || 200), site: q(req).get('site') || null, before: q(req).get('before') || null }), keepDays: activity.KEEP_DAYS }));
+  on('POST', '/api/activity/prune', async (req, res, p, body) => {
+    if (body.before == null || Date.parse(body.before) > Date.now() + 60_000) throw new HttpError(400, 'Choose a date that is not in the future.');
+    return { removed: activity.prune(String(body.before)) };
+  });
 }
 
 /** Drop everything cached in memory for a website that was deleted. */

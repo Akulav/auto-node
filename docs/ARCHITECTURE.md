@@ -43,7 +43,7 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/deploy.js` | Git connect/check/deploy, auto-update loop, webhook verification, workflow generator |
 | `src/settings.js` | API routes behind the Settings page, grouped like its tabs: updates, web server, backups, export & import, security, remote access |
 | `src/features.js` | API routes for the per-website features below (registered into the router in `server.js`) |
-| `src/activity.js` | Activity log (JSONL, rotated at 5 MB) and plain-language labels for dashboard actions |
+| `src/activity.js` | Activity log (JSONL, rotated at 5 MB, kept 30 days, pruned hourly or up to a chosen date) and plain-language labels for dashboard actions |
 | `src/snapshots.js` | Pre-deploy and manual snapshots (`tar`, no `node_modules`); restore runs tar as the site user, keeps locked files |
 | `src/history.js` | Last 50 deploys per site with logs |
 | `src/health.js` | Health-check loop: probe `127.0.0.1:port/path`, restart after N failures, startup grace and cooldown |

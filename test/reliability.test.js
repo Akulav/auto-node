@@ -179,6 +179,24 @@ test('snapshot pruning keeps the newest ones, even several taken in the same sec
   }
 });
 
+test('activity keeps 30 days and can be cleared up to a date', async () => {
+  const activity = await import('../src/activity.js');
+  const day = 86400_000;
+  const at = (daysAgo) => new Date(Date.now() - daysAgo * day).toISOString();
+  const line = (daysAgo, action) => JSON.stringify({ at: at(daysAgo), action, ok: true, by: 'system' });
+  fs.writeFileSync(config.paths.activityFile + '.1', line(40, 'ancient') + '\n' + line(10, 'ten days') + '\n');
+  fs.writeFileSync(config.paths.activityFile, line(3, 'three days') + '\nnot json\n' + line(0, 'today') + '\n');
+
+  // Older than 30 days is never shown, even before it is pruned.
+  assert.deepEqual(activity.list().map((e) => e.action), ['today', 'three days', 'ten days']);
+
+  assert.equal(activity.prune(), 2, 'the 40-day-old entry and the damaged line');
+  assert.equal(fs.existsSync(config.paths.activityFile + '.1'), false);
+  assert.equal(activity.prune(at(5)), 1);
+  assert.deepEqual(activity.list().map((e) => e.action), ['today', 'three days']);
+  assert.throws(() => activity.prune('not a date'), /valid date/);
+});
+
 test('saving a file keeps its permissions and leaves no temp files', async () => {
   await sites.createSite({ name: 'modes', template: 'empty' });
   const dir = sites.siteDir('modes');

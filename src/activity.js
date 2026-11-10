@@ -1,11 +1,14 @@
 /**
  * Activity log: who did what, when. One JSON object per line in
  * /var/lib/autonode/activity.log (root only), rotated at 5 MB.
+ * Entries older than 30 days are removed automatically; the dashboard can clear older ones sooner.
  */
 import fs from 'node:fs';
 import * as config from './config.js';
+import { HttpError, writeFileAtomic } from './util.js';
 
 const MAX_BYTES = 5 * 1024 * 1024;
+export const KEEP_DAYS = 30;
 
 /**
  * @param {object} e
@@ -37,10 +40,13 @@ function readLines(file) {
   }
 }
 
-/** Newest first. */
+const cutoff = () => new Date(Date.now() - KEEP_DAYS * 86400_000).toISOString();
+
+/** Newest first, only the last 30 days. */
 export function list({ limit = 200, site = null, before = null } = {}) {
   const file = config.paths.activityFile;
   const lines = [...readLines(file + '.1'), ...readLines(file)];
+  const oldest = cutoff();
   const out = [];
   for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
     let e;
@@ -49,11 +55,53 @@ export function list({ limit = 200, site = null, before = null } = {}) {
     } catch {
       continue;
     }
+    if (typeof e?.at !== 'string' || e.at < oldest) continue;
     if (site && e.site !== site) continue;
     if (before && e.at >= before) continue;
     out.push(e);
   }
   return out;
+}
+
+/**
+ * Remove every entry from before `beforeIso` (default: older than 30 days).
+ * Returns how many were removed. Damaged lines are dropped too.
+ */
+export function prune(beforeIso = cutoff()) {
+  const t = Date.parse(beforeIso);
+  if (!Number.isFinite(t)) throw new HttpError(400, 'Choose a valid date.');
+  // Never keep more than 30 days, even if asked for an older date.
+  const limit = new Date(Math.max(t, Date.parse(cutoff()))).toISOString();
+  const file = config.paths.activityFile;
+  const lines = [...readLines(file + '.1'), ...readLines(file)];
+  const kept = [];
+  for (const line of lines) {
+    try {
+      const e = JSON.parse(line);
+      if (typeof e?.at === 'string' && e.at >= limit) kept.push(line);
+    } catch {}
+  }
+  const removed = lines.length - kept.length;
+  if (!removed) return 0;
+  writeFileAtomic(file, kept.length ? kept.join('\n') + '\n' : '');
+  fs.rmSync(file + '.1', { force: true });
+  return removed;
+}
+
+let timer = null;
+/** Drop entries older than 30 days now and then once an hour. */
+export function startRetention() {
+  if (timer) return;
+  const run = () => {
+    try {
+      prune();
+    } catch (err) {
+      console.error('[activity]', err.message);
+    }
+  };
+  run();
+  timer = setInterval(run, 60 * 60_000);
+  timer.unref();
 }
 
 /** Plain-language labels for dashboard actions (method + route pattern). Bodies are never logged except listed fields. */
@@ -98,6 +146,7 @@ const LABELS = {
   'POST /api/password': () => ['Changed the dashboard password'],
   'POST /api/sessions/revoke': () => ['Signed out everywhere'],
   'PATCH /api/remote-access': (p, b) => [b.enabled ? 'Turned on remote access' : 'Turned off remote access'],
+  'POST /api/activity/prune': (p, b) => ['Cleared older activity', Number.isFinite(Date.parse(b.before)) ? `everything before ${new Date(b.before).toISOString().slice(0, 16).replace('T', ' ')} UTC` : null],
   'PATCH /api/snapshots': (p, b) => ['Changed how many snapshots are kept', b.keep != null ? `keep ${Number(b.keep)}` : null],
   'POST /api/backup/restore': () => ['Restored a backup'],
   'PATCH /api/backups': () => ['Changed backup schedule'],

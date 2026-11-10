@@ -462,6 +462,7 @@ export async function serve() {
   selfupdate.startAutoCheck();
   health.start((name) => deploy.jobStatus(name).running);
   visitors.start();
+  activity.startRetention(); // keep 30 days
   tasks.start();
   backup.startScheduler();
 
