@@ -15,7 +15,7 @@ const auth = await import('../src/auth.js');
 const settings = await import('../src/settings.js');
 const files = await import('../src/files.js');
 const sites = await import('../src/sites.js');
-const { writeFileAtomic, readJsonFile } = await import('../src/util.js');
+const { writeFileAtomic, readJsonFile, which } = await import('../src/util.js');
 const { handler } = await import('../src/server.js');
 
 before(() => config.load());
@@ -164,6 +164,19 @@ test('editing a file never writes through a symlink planted in its place', async
   await files.writeText('linky', '/page.html', 'new');
   assert.equal(fs.readFileSync(path.join(dir, 'page.html'), 'utf8'), 'new');
   assert.equal(fs.readFileSync(outside, 'utf8'), 'secret');
+});
+
+test('snapshot pruning keeps the newest ones, even several taken in the same second', { skip: !which('tar') && 'tar not installed' }, async () => {
+  const snapshots = await import('../src/snapshots.js');
+  await sites.createSite({ name: 'snappy', template: 'starter' });
+  config.update((c) => (c.snapshots.keep = 2));
+  try {
+    const made = [];
+    for (let i = 0; i < 6; i++) made.push((await snapshots.create('snappy', { reason: `n${i}` })).id);
+    assert.deepEqual(snapshots.list('snappy').map((s) => s.id), [made[5], made[4]]);
+  } finally {
+    config.update((c) => (c.snapshots.keep = 5));
+  }
 });
 
 test('saving a file keeps its permissions and leaves no temp files', async () => {

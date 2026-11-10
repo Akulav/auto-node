@@ -22,6 +22,7 @@ All notable changes to AutoNode are documented here. The format follows [Keep a 
 - **Password-protected websites always answered with an error.** Leftover code in the proxy referenced a request that didn't exist, so every visit to a site with a visitor password failed.
 - **A website could make AutoNode overwrite any file on the server.** Uploads went through a fixed temp name (`<file>.autonode-upload`) that the website's own code could replace with a symlink. Edits, uploads and downloads now open files without following symlinks, check where the opened file really is, and write through a random temp file that is renamed into place.
 - Deleting a website kept its visitor stats, health state, icon and disk usage in memory; a new website with the same name inherited them (and the stats were written back to disk). Deleting during a deploy is now refused.
+- **Snapshot pruning could delete the newest snapshots.** Snapshots taken within the same second were ordered randomly, so keeping "the newest N" could remove a fresh one (and break Undo / Roll back right after quick deploys). Snapshots are now ordered by a strictly increasing sequence number.
 - A website named `constructor` (or another built-in object name) couldn't be created.
 - A certificate without any domain name caused a server error instead of a clear message.
 - First-run password setup is only possible from the home network.

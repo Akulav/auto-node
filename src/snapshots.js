@@ -25,6 +25,15 @@ function newId() {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}-${Math.random().toString(36).slice(2, 6).padEnd(4, '0')}`;
 }
 
+/**
+ * Ids only have one-second resolution (the suffix is random), so they can't order
+ * snapshots taken in the same second. Each snapshot also stores a strictly increasing
+ * `seq`; older snapshots without one fall back to their timestamp.
+ */
+let lastSeq = 0;
+const nextSeq = () => (lastSeq = Math.max(Date.now(), lastSeq + 1));
+const order = (s) => (Number.isFinite(s.seq) ? s.seq : Date.parse(s.at) || 0);
+
 function checkId(id) {
   if (!ID_RE.test(String(id))) throw new HttpError(400, 'Invalid snapshot.');
   return id;
@@ -55,7 +64,7 @@ export function list(name) {
       if (fs.existsSync(path.join(dirFor(name), `${meta.id}.tar.gz`))) out.push(meta);
     } catch {}
   }
-  return out.sort((a, b) => b.id.localeCompare(a.id));
+  return out.sort((a, b) => order(b) - order(a) || b.id.localeCompare(a.id)); // newest first
 }
 
 function prune(name) {
@@ -82,7 +91,7 @@ export async function create(name, { reason = 'manual', commit = null } = {}) {
     throw err;
   }
   fs.chmodSync(file, 0o600);
-  const meta = { id, at: new Date().toISOString(), reason, commit, size: fs.statSync(file).size };
+  const meta = { id, at: new Date().toISOString(), seq: nextSeq(), reason, commit, size: fs.statSync(file).size };
   writeFileAtomic(path.join(dir, `${id}.json`), JSON.stringify(meta));
   prune(name);
   return meta;
