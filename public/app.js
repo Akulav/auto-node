@@ -613,11 +613,11 @@ function siteOverview(site, onLive) {
         'dl',
         { class: 'kv' },
         ...[
-          ['Start command', h('code', {}, site.detectedCommand)],
+          ['Start command', h('span', { class: 'row wrap', style: 'gap:8px' }, kindPill(site), site.detectedCommand ? h('code', {}, site.detectedCommand) : h('span', { class: 'muted' }, 'Not found — set one in Settings'))],
           ['Port', site.port],
           ['Size on disk', fmtBytes(site.size)],
           ['Source', site.git ? h('span', { class: 'row' }, icon('github'), site.git.repo.replace(/^https:\/\/github.com\//, '').replace(/\.git$/, ''), ' · ', site.git.branch) : 'Uploaded files'],
-          ['Data folder', h('span', {}, h('a', { href: `#/sites/${site.name}/files?area=data` }, 'Open'), h('span', { class: 'muted' }, ' · your app reads it as '), h('code', {}, 'process.env.DATA_DIR'))],
+          ['Data folder', h('span', {}, h('a', { href: `#/sites/${site.name}/files?area=data` }, 'Open'), h('span', { class: 'muted' }, ' · your app reads it as '), h('code', {}, site.kind === 'rust' ? 'std::env::var("DATA_DIR")' : 'process.env.DATA_DIR'))],
           ['Created', new Date(site.createdAt).toLocaleDateString()],
         ].flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]),
       ),
@@ -637,7 +637,7 @@ function siteOverview(site, onLive) {
           icon('bolt'),
           'Install & Rebuild',
         ),
-        h('span', { class: 'small muted' }, 'Installs packages, runs the build script and restarts.'),
+        h('span', { class: 'small muted' }, site.kind === 'rust' ? 'Builds the program with cargo and restarts.' : 'Installs packages, runs the build script and restarts.'),
       ),
     ),
     storageCard(site),
@@ -956,7 +956,7 @@ function siteFiles(site) {
   const paintNote = () =>
     append(clear(areaNote), [
       area === 'data'
-        ? notice('good', h('b', {}, 'Data folder. '), 'Store databases and uploads here — GitHub updates, rollbacks and “clean” never touch it, and it is included in full backups. Your app finds it at ', h('code', {}, 'process.env.DATA_DIR'), '.')
+        ? notice('good', h('b', {}, 'Data folder. '), 'Store databases and uploads here — GitHub updates, rollbacks and “clean” never touch it, and it is included in full backups. Your app finds it at ', h('code', {}, site.kind === 'rust' ? 'std::env::var("DATA_DIR")' : 'process.env.DATA_DIR'), '.')
         : null,
     ]);
   paintNote();
@@ -1726,7 +1726,13 @@ function meterRow(label, value, total, hint) {
   );
 }
 
+/** "Node.js" or "Rust": what kind of program the website is (from package.json / Cargo.toml). */
+function kindPill(site) {
+  return h('span', { class: 'pill', title: site.kind === 'rust' ? 'Built with cargo from Cargo.toml' : 'Runs with Node.js from package.json' }, site.kind === 'rust' ? 'Rust' : 'Node.js');
+}
+
 function storageCard(site) {
+  const rust = site.kind === 'rust';
   const box = h('div', { class: 'card' }, h('div', { class: 'row' }, h('h3', {}, 'Storage'), h('span', { class: 'spin right' })));
   const load = async (fresh) => {
     let u;
@@ -1736,16 +1742,25 @@ function storageCard(site) {
       return append(clear(box), [h('h3', {}, 'Storage'), h('p', { class: 'muted small' }, err.message)]);
     }
     const clean = async (reinstall, btn) => {
-      const ok = await confirmSheet({
-        title: reinstall ? 'Clean and reinstall packages?' : 'Delete node_modules?',
-        text: reinstall ? 'node_modules is deleted, packages are installed fresh, and the website restarts. Useful when packages behave strangely.' : 'Frees the space now. The website keeps running, but it needs “Install & Rebuild” before it can start again.',
-        ok: reinstall ? 'Clean & Reinstall' : 'Delete',
-        danger: !reinstall,
-      });
+      const ok = await confirmSheet(
+        rust
+          ? {
+              title: reinstall ? 'Clean and rebuild?' : 'Delete build files?',
+              text: reinstall ? 'The target folder is deleted (like “cargo clean”), the program is built from scratch, and the website restarts. The build can take several minutes.' : 'Deletes the target folder to free the space now. The website keeps running, but it needs “Install & Rebuild” before it can start again.',
+              ok: reinstall ? 'Clean & Rebuild' : 'Delete',
+              danger: !reinstall,
+            }
+          : {
+              title: reinstall ? 'Clean and reinstall packages?' : 'Delete node_modules?',
+              text: reinstall ? 'node_modules is deleted, packages are installed fresh, and the website restarts. Useful when packages behave strangely.' : 'Frees the space now. The website keeps running, but it needs “Install & Rebuild” before it can start again.',
+              ok: reinstall ? 'Clean & Reinstall' : 'Delete',
+              danger: !reinstall,
+            },
+      );
       if (!ok) return;
       await busy(btn, async () => {
         const r = await api('POST', `/api/sites/${site.name}/clean`, { reinstall });
-        toast(`Freed ${fmtBytes(r.freed)}${reinstall ? ' — reinstalling…' : ''}`);
+        toast(`Freed ${fmtBytes(r.freed)}${reinstall ? (rust ? ' — rebuilding…' : ' — reinstalling…') : ''}`);
         load(true);
       });
     };
@@ -1756,7 +1771,7 @@ function storageCard(site) {
         'div',
         { class: 'list flat' },
         meterRow('Website files', u.code, u.total, 'Your code and build output'),
-        meterRow('Packages', u.nodeModules, u.total, 'node_modules — can be reinstalled any time'),
+        rust ? meterRow('Build files', u.target, u.total, 'target — cargo rebuilds it any time') : meterRow('Packages', u.nodeModules, u.total, 'node_modules — can be reinstalled any time'),
         meterRow('Git history', u.git, u.total),
         meterRow('Data folder', u.data, u.total, 'Databases and uploads (DATA_DIR)'),
         meterRow('Snapshots', u.snapshots, u.total, 'Copies for rolling back'),
@@ -1764,8 +1779,8 @@ function storageCard(site) {
       h(
         'div',
         { class: 'row wrap', style: 'margin-top:12px' },
-        (b1 = h('button', { class: 'btn sm', disabled: !u.nodeModules, onclick: () => clean(true, b1) }, icon('restart'), 'Clean & Reinstall Packages')),
-        (b2 = h('button', { class: 'btn sm danger', disabled: !u.nodeModules, onclick: () => clean(false, b2) }, icon('trash'), 'Delete node_modules')),
+        (b1 = h('button', { class: 'btn sm', disabled: !(rust ? u.target : u.nodeModules), onclick: () => clean(true, b1) }, icon('restart'), rust ? 'Clean & Rebuild' : 'Clean & Reinstall Packages')),
+        (b2 = h('button', { class: 'btn sm danger', disabled: !(rust ? u.target : u.nodeModules), onclick: () => clean(false, b2) }, icon('trash'), rust ? 'Delete Build Files' : 'Delete node_modules')),
         h('button', { class: 'btn sm ghost right', onclick: () => load(true) }, 'Refresh'),
       ),
     ]);

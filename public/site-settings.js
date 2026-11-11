@@ -31,6 +31,7 @@ async function offerRestart(site, text = 'Restart the website now so the changes
 
 function generalSection(site) {
   let title, start, install, build, port;
+  const rust = site.kind === 'rust';
   const save = async (e) => {
     e.preventDefault();
     await busy(e.target.querySelector('.primary'), async () => {
@@ -45,9 +46,14 @@ function generalSection(site) {
     'form',
     { class: 'card pad-lg form', onsubmit: save },
     h('div', { class: 'form-grid' }, h('label', { class: 'field' }, 'Display name', (title = h('input', { class: 'input', value: site.title, maxlength: 80 }))), h('label', { class: 'field' }, h('span', {}, 'Internal port ', h('span', { class: 'hint' }, '(given to your app as PORT)')), (port = h('input', { class: 'input', type: 'number', value: site.port, min: 1024, max: 65535, required: true })))),
-    h('div', { class: 'section-title' }, h('h3', {}, 'Commands'), h('span', { class: 'muted small' }, 'Leave empty and AutoNode figures it out from package.json.')),
-    h('label', { class: 'field' }, 'Start', (start = h('input', { class: 'input mono', value: site.startCommand, placeholder: site.detectedCommand }))),
-    h('div', { class: 'form-grid' }, h('label', { class: 'field' }, 'Install', (install = h('input', { class: 'input mono', value: site.installCommand, placeholder: 'npm ci' }))), h('label', { class: 'field' }, 'Build', (build = h('input', { class: 'input mono', value: site.buildCommand, placeholder: 'npm run build (if present)' })))),
+    h('div', { class: 'section-title' }, h('h3', {}, 'Commands'), h('span', { class: 'row', style: 'gap:8px' }, h('span', { class: 'pill' }, rust ? 'Rust' : 'Node.js'), h('span', { class: 'muted small' }, `Leave empty and AutoNode figures it out from ${rust ? 'Cargo.toml' : 'package.json'}.`))),
+    h('label', { class: 'field' }, 'Start', (start = h('input', { class: 'input mono', value: site.startCommand, placeholder: site.detectedCommand || './target/release/my-app' }))),
+    h(
+      'div',
+      { class: 'form-grid' },
+      h('label', { class: 'field' }, 'Install', (install = h('input', { class: 'input mono', value: site.installCommand, placeholder: rust ? 'Not needed (cargo fetches crates while building)' : 'npm ci' }))),
+      h('label', { class: 'field' }, 'Build', (build = h('input', { class: 'input mono', value: site.buildCommand, placeholder: rust ? 'cargo build --release' : 'npm run build (if present)' }))),
+    ),
     h('div', { class: 'row' }, h('button', { class: 'btn primary' }, 'Save Changes')),
   );
 }

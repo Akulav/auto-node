@@ -44,7 +44,7 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/settings.js` | API routes behind the Settings page, grouped like its tabs: updates, web server, backups, export & import, security, remote access |
 | `src/features.js` | API routes for the per-website features below (registered into the router in `server.js`) |
 | `src/activity.js` | Activity log (JSONL, rotated at 5 MB, kept 30 days, pruned hourly or up to a chosen date) and plain-language labels for dashboard actions |
-| `src/snapshots.js` | Pre-deploy and manual snapshots (`tar`, no `node_modules`); restore runs tar as the site user, keeps locked files |
+| `src/snapshots.js` | Pre-deploy and manual snapshots (`tar`, no `node_modules` or a Rust site's top-level `target/`); restore runs tar as the site user, keeps locked files |
 | `src/history.js` | Last 50 deploys per site with logs |
 | `src/health.js` | Health-check loop: probe `127.0.0.1:port/path`, restart after N failures, startup grace and cooldown |
 | `src/traffic.js` | www handling, redirects, maintenance page, password protection (scrypt + cache + lockout) |
@@ -68,7 +68,14 @@ Each website has:
 - `/etc/autonode/env/<name>.env` — `PORT`, `NODE_ENV=production`, `HOST`, `PATH` and the user's variables
 - `/etc/systemd/system/autonode-site-<name>.service` — `User=autonode`, `Restart=always`, `NoNewPrivileges`, `ProtectSystem=full`, `PrivateTmp`
 
-The start command is auto-detected unless set: `npm start` if `package.json` has a start script, else `node <main>`, else the first of `server.js`, `index.js`, `app.js`, …
+A website is **Node.js** or **Rust** (`src/rust.js`): a folder with a `Cargo.toml` and no `package.json` is Rust; everything else is Node.js. The dashboard shows which.
+
+The start command is auto-detected unless set:
+
+- **Node.js:** `npm start` if `package.json` has a start script, else `node <main>`, else the first of `server.js`, `index.js`, `app.js`, …
+- **Rust:** `./target/release/<binary>`. The binary is `[package] default-run`, else a `[[bin]]` named like the package, else the first `[[bin]]`, else `[package] name`. `Cargo.toml` is untrusted, so it is read by a small line-based reader (no dependencies) and the name must match `^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$` before it can go into the root-written start script. If no name is found (e.g. a bare workspace) the site refuses to start and asks for a Start command.
+
+Rust sites get the `autonode` user's `~/.cargo/bin` (`/var/lib/autonode/home/.cargo/bin`, where rustup installs) on their `PATH`, for builds, tasks and the running site. AutoNode doesn't install Rust; a deploy without cargo stops with the one command to install it with rustup as that user.
 
 ## Deploys
 
@@ -81,8 +88,8 @@ The start command is auto-detected unless set: `npm start` if `package.json` has
    - A tracked file modified on the server that the new commit still has, or an untracked file at a path the new commit adds, is a **conflict** (unless the content is identical or a lock covers it). Conflicts pause the deploy, store `git.blocked`, and stop auto-updates until the user picks `resolve: "keep"` (keep + lock) or `"overwrite"`.
    - Files matched by the site's **locks** (`src/locks.js`: exact paths, `folder/`, globs) are always copied aside and restored.
    - Every kept/overwritten file is first copied to `/var/lib/autonode/rescued/<site>/<timestamp>-kept|overwritten/`.
-3. Install: `npm ci` (lockfile) / `npm install`, or pnpm/yarn if their lockfile and binary exist, or the custom command
-4. Build: `npm run build` if a build script exists, or the custom command
+3. Install: `npm ci` (lockfile) / `npm install`, or pnpm/yarn if their lockfile and binary exist, or the custom command. Rust sites skip it (cargo fetches crates while building).
+4. Build: `npm run build` if a build script exists; for Rust `cargo build --release --locked` (without `--locked` when there's no `Cargo.lock`); or the custom command
 5. Restart the service
 
 Private repositories use a fine-grained token passed through `GIT_CONFIG_*` environment variables (never written to `.git/config` and not visible in `ps`).

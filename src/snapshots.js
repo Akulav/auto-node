@@ -1,6 +1,6 @@
 /**
  * Snapshots: a compressed copy of a website's folder (code + .git, without
- * node_modules), taken automatically before every GitHub deploy and on demand.
+ * node_modules or a Rust site's target/), taken automatically before every GitHub deploy and on demand.
  * Restoring one puts the files back, keeps locked files as they are now, leaves
  * DATA_DIR alone, then reinstalls, rebuilds and restarts.
  *
@@ -11,7 +11,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
 import * as config from './config.js';
-import { getSite, siteDir, fixOwnership } from './sites.js';
+import { getSite, siteDir, siteKind, fixOwnership } from './sites.js';
 import { siteUser } from './runner.js';
 import { lockedFiles } from './locks.js';
 import { HttpError, which, writeFileAtomic } from './util.js';
@@ -84,7 +84,12 @@ export async function create(name, { reason = 'manual', commit = null } = {}) {
   const file = path.join(dir, `${id}.tar.gz`);
   // Read as root (tar stores symlinks, it doesn't follow them); written to a root-only folder.
   try {
-    await tar(['-czf', file + '.part', '--exclude=node_modules', '--exclude=*.autonode-upload', '--exclude=*.autonode-tmp', '-C', src, '.']);
+    // A Rust site's build output (target/) is rebuilt by cargo, like node_modules is reinstalled.
+    // Only the top-level target/ of Rust sites: listing the other entries keeps every "src/target"
+    // (tar's --exclude can't be anchored the same way by GNU tar and bsdtar). "./" stops a name
+    // starting with "-" from being read as an option.
+    const members = siteKind(getSite(name)) === 'rust' ? fs.readdirSync(src).filter((e) => e !== 'target').map((e) => `./${e}`) : ['.'];
+    await tar(['-czf', file + '.part', '--exclude=node_modules', '--exclude=*.autonode-upload', '--exclude=*.autonode-tmp', '-C', src, ...members]);
     fs.renameSync(file + '.part', file);
   } catch (err) {
     fs.rmSync(file + '.part', { force: true }); // a failed snapshot must not fill the disk

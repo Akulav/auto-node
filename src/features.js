@@ -41,11 +41,19 @@ export async function usage(name, { fresh = false } = {}) {
   if (usagePending.has(name)) return usagePending.get(name);
   const work = (async () => {
     const dir = sites.siteDir(name);
-    const [total, nodeModules, git, data] = await Promise.all([realDirSize(dir), realDirSize(path.join(dir, 'node_modules')), realDirSize(path.join(dir, '.git')), realDirSize(sites.siteDataDir(name))]);
+    const kind = sites.siteKind(sites.getSite(name));
+    // A Rust site's target/ is build output cargo can recreate; only counted for Rust sites.
+    const [total, nodeModules, target, git, data] = await Promise.all([
+      realDirSize(dir),
+      realDirSize(path.join(dir, 'node_modules')),
+      kind === 'rust' ? realDirSize(path.join(dir, 'target')) : 0,
+      realDirSize(path.join(dir, '.git')),
+      realDirSize(sites.siteDataDir(name)),
+    ]);
     let snaps = 0;
     for (const s of snapshots.list(name)) snaps += s.size || 0;
-    const value = { code: Math.max(0, total - nodeModules - git), nodeModules, git, data, snapshots: snaps };
-    value.total = value.code + value.nodeModules + value.git + value.data + value.snapshots;
+    const value = { kind, code: Math.max(0, total - nodeModules - target - git), nodeModules, target, git, data, snapshots: snaps };
+    value.total = value.code + value.nodeModules + value.target + value.git + value.data + value.snapshots;
     usageCache.set(name, { at: Date.now(), value });
     return value;
   })().finally(() => usagePending.delete(name));
@@ -163,13 +171,15 @@ export function register(on, { q }) {
   on('POST', '/api/sites/:name/clean', async (req, res, p, body) => {
     const s = site(p);
     if (deploy.jobStatus(s.name).running) throw new HttpError(409, 'Wait for the current deploy to finish first.');
-    const nm = path.join(sites.siteDir(s.name), 'node_modules');
+    // Node: node_modules. Rust: target/ (what `cargo clean` removes), rebuilt on the next build.
+    const rustSite = sites.siteKind(s) === 'rust';
+    const nm = path.join(sites.siteDir(s.name), rustSite ? 'target' : 'node_modules');
     const before = await realDirSize(nm);
     await fs.promises.rm(nm, { recursive: true, force: true }); // rm never follows symlinks; async so websites keep being served
     usageCache.delete(s.name);
     forgetFolderSize(sites.siteDir(s.name));
-    if (body.reinstall) deploy.deploy(s.name, { reason: 'clean reinstall', pull: false, by: 'you' });
-    return { freed: before, reinstalling: !!body.reinstall };
+    if (body.reinstall) deploy.deploy(s.name, { reason: rustSite ? 'clean rebuild' : 'clean reinstall', pull: false, by: 'you' });
+    return { freed: before, reinstalling: !!body.reinstall, kind: rustSite ? 'rust' : 'node' };
   });
 
   // Activity log

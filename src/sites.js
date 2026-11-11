@@ -4,6 +4,7 @@ import net from 'node:net';
 import crypto from 'node:crypto';
 import * as config from './config.js';
 import { runner, siteUser, siteEnv } from './runner.js';
+import * as rust from './rust.js';
 import { run, HttpError, SITE_NAME_RE, HOSTNAME_RE, ENV_KEY_RE, normalizeHostname, isLinux } from './util.js';
 
 export const siteDir = (name) => path.join(config.paths.sitesDir, name);
@@ -65,10 +66,17 @@ export async function fixOwnership(target) {
   await run('chown', ['-R', '-h', `${config.SITE_USER}:${config.SITE_USER}`, target], { quiet: true });
 }
 
-/** Figure out how to start a site when the user didn't specify. */
+/**
+ * What kind of website a folder holds: 'node' (package.json, or nothing to go on)
+ * or 'rust' (a Cargo.toml without a package.json).
+ */
+export const siteKind = (site) => rust.kindOf(siteDir(site.name));
+
+/** Figure out how to start a site when the user didn't specify. '' means: couldn't tell. */
 export function detectStartCommand(site) {
   if (site.startCommand?.trim()) return site.startCommand.trim();
   const dir = siteDir(site.name);
+  if (siteKind(site) === 'rust') return rust.startCommand(dir);
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
     if (pkg.scripts?.start) return 'npm start';
@@ -91,6 +99,7 @@ export function publicSite(s, status) {
     ...s,
     git: s.git ? { ...s.git, token: s.git.token ? '••••••••' : null, hasToken: !!s.git.token } : null,
     detectedCommand: detectStartCommand(s),
+    kind: siteKind(s),
     dataDir: siteDataDir(s.name),
     access: s.access ? { enabled: !!s.access.enabled, username: s.access.username || '' } : { enabled: false, username: '' }, // never the password hash
     status: status || { state: 'stopped' },
@@ -218,7 +227,9 @@ export function removeHostname(name, hostname) {
 export async function startSite(name) {
   const site = getSite(name);
   await ensureDataDir(name);
-  await runner().start(site, detectStartCommand(site));
+  const command = detectStartCommand(site);
+  if (!command) throw new HttpError(400, "AutoNode couldn't tell from Cargo.toml which program to start. Add a [package] name, or set the Start command in Settings (for example ./target/release/my-app).");
+  await runner().start(site, command);
   config.update((c) => {
     c.sites[name].enabled = true;
   });

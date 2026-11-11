@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import * as config from './config.js';
+import * as rust from './rust.js';
 import { run, runOk, which, LineBuffer, isLinux } from './util.js';
 
 const nodeBinDir = path.dirname(process.execPath);
@@ -37,8 +38,10 @@ export async function siteUser() {
 }
 
 export function siteEnv(site) {
+  // Rust sites also get the autonode user's ~/.cargo/bin (where rustup installs cargo).
+  const extra = rust.kindOf(path.join(config.paths.sitesDir, site.name)) === 'rust' ? `${rust.cargoBinDir()}:` : '';
   return {
-    PATH: `${nodeBinDir}:/usr/local/bin:/usr/bin:/bin`,
+    PATH: `${nodeBinDir}:${extra}/usr/local/bin:/usr/bin:/bin`,
     HOME: config.paths.homeDir,
     NODE_ENV: 'production',
     PORT: String(site.port),
@@ -290,8 +293,10 @@ export const runnerKind = () => (useSystemd() ? 'systemd' : 'built-in');
 export async function restoreChildren(sites, commandFor) {
   if (useSystemd()) {
     for (const s of sites) {
+      const command = commandFor(s);
+      if (!command) continue; // e.g. a Rust site whose Cargo.toml names no program: starting it explains why
       try {
-        const changed = await systemd.write(s, commandFor(s));
+        const changed = await systemd.write(s, command);
         if (changed && s.enabled) {
           console.log(`[sites] Updated service for ${s.name}, restarting`);
           await runOk('systemctl', ['restart', unitName(s.name)]);
@@ -302,7 +307,7 @@ export async function restoreChildren(sites, commandFor) {
     }
     return;
   }
-  for (const s of sites) if (s.enabled) await child.start(s, commandFor(s)).catch(() => {});
+  for (const s of sites) if (s.enabled && commandFor(s)) await child.start(s, commandFor(s)).catch(() => {});
 }
 
 export async function stopAllChildren() {

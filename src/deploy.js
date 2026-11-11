@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as config from './config.js';
-import { getSite, siteDir, runInSite, restartSite, newSecret, fixOwnership } from './sites.js';
+import { getSite, siteDir, siteKind, runInSite, restartSite, newSecret, fixOwnership } from './sites.js';
+import * as rust from './rust.js';
 import { siteUser } from './runner.js';
 import { matcher, lockedFiles, addLocks } from './locks.js';
 import * as snapshots from './snapshots.js';
@@ -295,7 +296,8 @@ function restoreFrom(site, from, paths) {
   }
 }
 
-function pickInstall(site) {
+/** Install step: custom command, else the Node package manager (Rust sites fetch crates while building). */
+export function pickInstall(site) {
   if (site.installCommand) return site.installCommand;
   const dir = siteDir(site.name);
   if (!fs.existsSync(path.join(dir, 'package.json'))) return null;
@@ -305,8 +307,10 @@ function pickInstall(site) {
   return 'npm install --no-audit --no-fund';
 }
 
-function pickBuild(site) {
+/** Build step: custom command, else `cargo build --release` for Rust, else `npm run build` if package.json has one. */
+export function pickBuild(site) {
   if (site.buildCommand) return site.buildCommand;
+  if (siteKind(site) === 'rust') return rust.buildCommand(siteDir(site.name));
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(siteDir(site.name), 'package.json'), 'utf8'));
     if (pkg.scripts?.build) return 'npm run build';
@@ -419,8 +423,10 @@ export function deploy(name, { reason = 'manual', pull = true, resolve = null, r
         await runInSite(name, install, say);
       }
       const build = pickBuild(site);
+      const cargoBuild = !site.buildCommand && siteKind(site) === 'rust';
+      if (cargoBuild && !rust.findCargo()) throw new Error(rust.missingCargoMessage());
       if (build) {
-        say(`\n[${stamp()}] Building…\n`);
+        say(`\n[${stamp()}] ${cargoBuild ? 'Building with cargo (the first build can take several minutes)…' : 'Building…'}\n`);
         await runInSite(name, build, say);
       }
       say(`\n[${stamp()}] Restarting website…\n`);

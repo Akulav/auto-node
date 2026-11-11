@@ -154,7 +154,7 @@ Backup JSON format: `{ format: "autonode-backup", formatVersion: 1, autonodeVers
 | GET | `/api/sites/:name/tasks/:id/log` | | `{ running, output }` |
 | POST | `/api/cron/preview` | `{ schedule }` | Next 3 run times |
 | GET | `/api/sites/:name/usage?fresh=1` | | `{ code, nodeModules, git, data, snapshots, total }` bytes |
-| POST | `/api/sites/:name/clean` | `{ reinstall }` | Delete `node_modules` (and reinstall) |
+| POST | `/api/sites/:name/clean` | `{ reinstall }` | Delete `node_modules`, or `target/` for a Rust site (and reinstall / rebuild) |
 
 File routes accept `?area=data` to work in the site's DATA_DIR instead of its code folder.
 

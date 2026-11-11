@@ -4,7 +4,7 @@
 
 # AutoNode
 
-**Your websites, your server.** Host Node.js websites on your own Linux machine and run them from a beautiful dashboard on your home network — domains, HTTPS, GitHub deploys, files, logs and live system stats, with all the technical stuff hidden away. Plain Node.js, zero dependencies.
+**Your websites, your server.** Host Node.js and Rust websites on your own Linux machine and run them from a beautiful dashboard on your home network — domains, HTTPS, GitHub deploys, files, logs and live system stats, with all the technical stuff hidden away. Plain Node.js, zero dependencies.
 
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2018.17-5fb3a1)
 ![Platform](https://img.shields.io/badge/platform-linux-5fb3a1)
@@ -22,6 +22,7 @@ Made with ♥ by **Akulav**
 | --- | --- |
 | **Live overview** | CPU, memory and free disk space in real time, with history charts, temperature, network speed and uptime. |
 | **Websites** | Create a site from a starter page, a GitHub repo or your own files. Start, stop and restart with one click. Each site runs as its own system service and survives reboots. |
+| **Node.js and Rust** | AutoNode sees what kind of website it is. Node.js: `npm`/`pnpm`/`yarn` install, `npm run build`, `npm start`. Rust (a `Cargo.toml`): `cargo build --release`, then the program from `target/release/`. Your own start, install and build commands always win. |
 | **Files** | Browse, upload (files, whole folders or a .zip), edit, rename, download and delete — right in the browser. |
 | **Logs** | Everything your site prints, streamed live. |
 | **Domains** | Step-by-step Cloudflare setup. Paste an API token and AutoNode creates DNS records, keeps them pointed at your home IP (dynamic DNS) and connects subdomains like `blog.akulav.com`. |
@@ -29,13 +30,13 @@ Made with ♥ by **Akulav**
 | **HTTPS** | Paste a Cloudflare Origin Certificate, or let AutoNode create one automatically. Built-in reverse proxy with SNI, WebSockets and HTTP → HTTPS redirects. |
 | **GitHub deploys** | Connect a repo (public or private), check for new commits, deploy with one click, auto-update on a schedule, or deploy instantly via webhook or a ready-made GitHub Actions workflow. |
 | **Safe updates** | Updates never silently overwrite data your website saved. Files your site creates are always kept; if an update would replace a file the site changed, it pauses and asks. Lock files, folders or patterns (`db.sqlite`, `data/`, `*.sqlite`) so updates never touch them. |
-| **Data folder** | Every website gets `process.env.DATA_DIR`, a folder for databases and uploads that deploys, rollbacks and cleanups never touch. Browse it in the Files tab; it's included in full backups. |
+| **Data folder** | Every website gets a `DATA_DIR` environment variable (`process.env.DATA_DIR`, `std::env::var("DATA_DIR")`), a folder for databases and uploads that deploys, rollbacks and cleanups never touch. Browse it in the Files tab; it's included in full backups. |
 | **Rollback & history** | A snapshot before every GitHub deploy, with one-click **Roll back** / **Undo**. Deploy history shows every deploy (commit, who, how long, full log) with **Redeploy** for any earlier version. |
 | **Health checks & limits** | AutoNode pings each site and restarts it if it stops answering, even when the process still looks alive. Optional memory cap per site so one leaking app can't slow the others. |
 | **Visitor stats** | Visitors, requests, errors, bandwidth and top pages per site, counted by the proxy. No cookies, no tracking scripts, no IP addresses stored; bots counted separately. |
 | **Traffic rules** | `www` ↔ apex handling, custom redirects (`/old` → `/new`, `/blog/*` → `/news/*`), maintenance mode with a "Back soon" page, and password protection for staging or private sites. |
 | **Scheduled tasks** | Cron-style jobs per site (`0 3 * * *`, `@daily`…), run as the site user with its environment, with output and history for every run. |
-| **Disk usage** | See how much each site uses (code, packages, git, data, snapshots) and clean or reinstall `node_modules` in one click. |
+| **Disk usage** | See how much each site uses (code, packages or Rust build files, git, data, snapshots) and clean or reinstall `node_modules` — or clean and rebuild a Rust site's `target/` — in one click. |
 | **Automatic backups** | Nightly full backups, keeping the last N, optionally copied to another disk or network share. Download or restore any of them from Settings. |
 | **Activity log** | Who did what, and when: dashboard changes, deploys, health-check restarts, backups, tasks and sign-ins (including failed ones). |
 | **Network** | See your IP, router and DNS. Switch to a fixed (static) IP from the dashboard — NetworkManager and netplan supported. |
@@ -48,6 +49,9 @@ Made with ♥ by **Akulav**
 - A Linux machine with systemd (Ubuntu, Debian, Raspberry Pi OS, Fedora, Arch…)
 - Node.js 18.17 or newer (the installer adds Node 22 if missing)
 - `git`, `unzip`, `openssl` (installed automatically)
+- For Rust websites only: Rust for the `autonode` user. Install it once with
+  `sudo -u autonode env HOME=/var/lib/autonode/home sh -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"`
+  (a system-wide `cargo` in `/usr/bin` works too)
 - Optional: a domain on [Cloudflare](https://dash.cloudflare.com) — e.g. one bought through Cloudflare Registrar
 
 ## Getting started
@@ -151,14 +155,14 @@ Everything AutoNode stores lives in two folders:
   tasks/            scheduled task output (root only)
   activity.log      activity log (root only)
   run/              generated start scripts
-  home/             npm cache for the site user
+  home/             the site user's home: npm cache, and Rust (~/.cargo, ~/.rustup) if installed
 /etc/systemd/system/autonode-site-<name>.service   one service per website
 ```
 
 The easy way to back up is **Settings → Backup & Restore**:
 
 - **Settings only** (`.json`): websites, domains, environment variables, certificates with private keys, Cloudflare token and preferences.
-- **Everything** (`.tar.gz`): the above plus every website's files (`node_modules` is skipped and reinstalled on restore).
+- **Everything** (`.tar.gz`): the above plus every website's files (`node_modules` and Rust `target/` folders are skipped, and reinstalled or rebuilt on restore).
 
 Import shows what's inside before applying. Websites with the same name are replaced, others are kept, and the dashboard password of the machine you restore onto stays the same. Port or domain clashes are resolved automatically and reported.
 

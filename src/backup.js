@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process';
 import * as config from './config.js';
 import * as certs from './certs.js';
 import { runner } from './runner.js';
-import { siteDir, siteDataDir, fixOwnership, allSites, startSite, reservedPorts } from './sites.js';
+import { siteDir, siteDataDir, siteKind, fixOwnership, allSites, startSite, reservedPorts } from './sites.js';
 import { deploy } from './deploy.js';
 import { HttpError, SITE_NAME_RE, run, which } from './util.js';
 
@@ -58,7 +58,11 @@ export async function streamFullExport(out) {
   if (!which('tar')) throw new HttpError(500, 'The "tar" program is missing.');
   const tmp = fs.mkdtempSync(path.join(config.paths.tmpDir, 'export-'));
   fs.writeFileSync(path.join(tmp, JSON_NAME), JSON.stringify(buildManifest(), null, 2), { mode: 0o600 });
-  const args = ['-czf', '-', '--exclude=node_modules', '--exclude=*.autonode-upload', '--exclude=*.autonode-tmp', '-C', tmp, JSON_NAME];
+  // Rust build output is rebuilt on restore like node_modules is reinstalled.
+  const rustTargets = allSites()
+    .filter((s) => siteKind(s) === 'rust')
+    .map((s) => `--exclude=sites/${s.name}/target`);
+  const args = ['-czf', '-', '--exclude=node_modules', ...rustTargets, '--exclude=*.autonode-upload', '--exclude=*.autonode-tmp', '-C', tmp, JSON_NAME];
   if (fs.existsSync(config.paths.sitesDir)) args.push('-C', config.paths.dataDir, 'sites');
   if (fs.existsSync(config.paths.siteDataRoot)) args.push('-C', config.paths.dataDir, path.basename(config.paths.siteDataRoot)); // each site's DATA_DIR
   const child = spawn('tar', args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -363,9 +367,12 @@ export async function restore(file, { settings = true, startSites = true } = {})
     for (const name of report.sites) {
       const s = config.get().sites[name];
       if (!s?.enabled) continue;
-      const hasCode = fs.existsSync(path.join(siteDir(name), 'package.json'));
+      const dir = siteDir(name);
+      const rustSite = siteKind(s) === 'rust';
+      const hasCode = fs.existsSync(path.join(dir, rustSite ? 'Cargo.toml' : 'package.json'));
+      const needsBuild = !fs.existsSync(path.join(dir, rustSite ? path.join('target', 'release') : 'node_modules'));
       if (s.git && !hasCode) deploy(name, { reason: 'restored from backup', by: 'system' });
-      else if (hasCode && !fs.existsSync(path.join(siteDir(name), 'node_modules'))) deploy(name, { reason: 'restored from backup', pull: false, by: 'system' });
+      else if (hasCode && needsBuild) deploy(name, { reason: 'restored from backup', pull: false, by: 'system' });
       else await startSite(name).catch((err) => report.warnings.push(`${name}: ${err.message}`));
     }
   }

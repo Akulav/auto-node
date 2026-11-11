@@ -2,6 +2,18 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-11-11
+
+### Added
+
+- **Rust websites.** A website with a `Cargo.toml` (and no `package.json`) is now recognised as Rust. Deploys build it with `cargo build --release --locked` (without `--locked` when there's no `Cargo.lock`) and start the program from `target/release/`, named from `[[bin]]` or `[package] name` in `Cargo.toml`. Your own start, install and build commands still win, and a website with a `package.json` is still Node.js.
+- **Rust for the `autonode` user.** Builds and the running website find `cargo` in the `autonode` user's `~/.cargo/bin` (where rustup installs it) or in the system folders. If Rust isn't installed, the deploy stops with the one command that installs it. AutoNode never installs it for you.
+- **The dashboard shows the kind of website** (Node.js or Rust) next to the start command on the Overview and in Settings. For Rust sites the Storage card shows "Build files" (`target/`) with **Clean & Rebuild** and **Delete Build Files** instead of the `node_modules` buttons.
+
+### Changed
+
+- Snapshots and full backups skip a Rust website's `target/` folder, like `node_modules`; it is rebuilt after a restore.
+
 ## [1.5.2] - 2026-11-11
 
 ### Changed
