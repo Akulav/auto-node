@@ -2,6 +2,20 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.5.2] - 2026-11-11
+
+### Changed
+
+- **The dashboard loads faster.** Its files are kept in memory, sent compressed (about 70% smaller) and revalidated with a tiny "not modified" answer, so reloading — especially over remote access — is quicker. A self-update still never leaves an old page behind.
+- **Less work while the dashboard is open.** Website status is checked once a second and shared by every open tab, instead of once per tab every two seconds.
+
+### Fixed
+
+- **Opening a website in the dashboard could make every website stop answering for a moment.** The site page counted every file in the website folder, `node_modules` included, in a way that blocked AutoNode, and the public proxy with it. The size is now counted in the background and reused for a minute. "Clean node_modules" no longer blocks either.
+- **Connections to websites were left open when visitors left.** If a visitor closed the tab during a live stream or long poll, the proxy kept its connection to the website open forever. It now closes as soon as the visitor goes; dropped WebSockets close on both sides too.
+- **Automatic updates could run twice at once.** A GitHub fetch slower than a minute let the next check start in the same folder, and the two git commands collided. Checks now wait for each other, and an update is skipped if a deploy started meanwhile.
+- **One unexpected error could take all websites offline.** A stray failed promise anywhere ended the whole AutoNode process, public proxy included. It is now logged and AutoNode keeps running; a real crash still saves visitor stats before systemd restarts it.
+
 ## [1.5.1] - 2026-11-11
 
 ### Added

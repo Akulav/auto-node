@@ -556,21 +556,34 @@ jobs:
 }
 
 let timer = null;
+let checking = false;
 export function startAutoUpdates() {
   if (timer) return;
   timer = setInterval(async () => {
-    for (const site of Object.values(config.get().sites)) {
-      const g = site.git;
-      if (!g?.autoUpdate || g.blocked || jobs.get(site.name)?.running) continue; // blocked: waits for you to choose
-      const last = g.lastCheck ? new Date(g.lastCheck).getTime() : 0;
-      if (Date.now() - last < g.interval * 60_000) continue;
-      try {
-        const r = await checkForUpdates(site.name);
-        if (!r.upToDate) deploy(site.name, { reason: 'auto-update', by: 'auto-update' });
-      } catch (err) {
-        console.error(`[auto-update] ${site.name}: ${err.message}`);
-      }
+    // A slow fetch can outlast the minute; a second pass would run git in the same folder at once.
+    if (checking) return;
+    checking = true;
+    try {
+      await autoUpdatePass();
+    } finally {
+      checking = false;
     }
   }, 60_000);
   timer.unref();
+}
+
+async function autoUpdatePass() {
+  for (const site of Object.values(config.get().sites)) {
+    const g = site.git;
+    if (!g?.autoUpdate || g.blocked || jobs.get(site.name)?.running) continue; // blocked: waits for you to choose
+    const last = g.lastCheck ? new Date(g.lastCheck).getTime() : 0;
+    if (Date.now() - last < g.interval * 60_000) continue;
+    try {
+      const r = await checkForUpdates(site.name);
+      // A deploy may have started (button, webhook) while we were fetching.
+      if (!r.upToDate && !jobs.get(site.name)?.running) deploy(site.name, { reason: 'auto-update', by: 'auto-update' });
+    } catch (err) {
+      console.error(`[auto-update] ${site.name}: ${err.message}`);
+    }
+  }
 }

@@ -17,35 +17,40 @@ import * as tasks from './tasks.js';
 import * as activity from './activity.js';
 import * as deploy from './deploy.js';
 import * as cf from './cloudflare.js';
-import { folderSize } from './files.js';
+import { folderSizeAsync, forgetFolderSize } from './files.js';
 import { HttpError } from './util.js';
 
 /* ------------------------------------------------------------ disk usage */
 
 const usageCache = new Map(); // name -> { at, value }
+const usagePending = new Map(); // name -> Promise (one walk at a time per site)
 
-function realDirSize(p) {
+/** Size of a real folder (a symlink is never followed), counted without blocking. */
+async function realDirSize(p) {
   try {
-    return fs.lstatSync(p).isDirectory() ? folderSize(p) : 0; // a symlink is never followed
+    return (await fs.promises.lstat(p)).isDirectory() ? await folderSizeAsync(p) : 0;
   } catch {
     return 0;
   }
 }
 
-export function usage(name, { fresh = false } = {}) {
+export async function usage(name, { fresh = false } = {}) {
   sites.getSite(name);
   const c = usageCache.get(name);
   if (!fresh && c && Date.now() - c.at < 60_000) return c.value;
-  const dir = sites.siteDir(name);
-  const total = realDirSize(dir);
-  const nodeModules = realDirSize(path.join(dir, 'node_modules'));
-  const git = realDirSize(path.join(dir, '.git'));
-  let snaps = 0;
-  for (const s of snapshots.list(name)) snaps += s.size || 0;
-  const value = { code: Math.max(0, total - nodeModules - git), nodeModules, git, data: realDirSize(sites.siteDataDir(name)), snapshots: snaps };
-  value.total = value.code + value.nodeModules + value.git + value.data + value.snapshots;
-  usageCache.set(name, { at: Date.now(), value });
-  return value;
+  if (usagePending.has(name)) return usagePending.get(name);
+  const work = (async () => {
+    const dir = sites.siteDir(name);
+    const [total, nodeModules, git, data] = await Promise.all([realDirSize(dir), realDirSize(path.join(dir, 'node_modules')), realDirSize(path.join(dir, '.git')), realDirSize(sites.siteDataDir(name))]);
+    let snaps = 0;
+    for (const s of snapshots.list(name)) snaps += s.size || 0;
+    const value = { code: Math.max(0, total - nodeModules - git), nodeModules, git, data, snapshots: snaps };
+    value.total = value.code + value.nodeModules + value.git + value.data + value.snapshots;
+    usageCache.set(name, { at: Date.now(), value });
+    return value;
+  })().finally(() => usagePending.delete(name));
+  usagePending.set(name, work);
+  return work;
 }
 
 /* --------------------------------------------------------------- routes */
@@ -159,9 +164,10 @@ export function register(on, { q }) {
     const s = site(p);
     if (deploy.jobStatus(s.name).running) throw new HttpError(409, 'Wait for the current deploy to finish first.');
     const nm = path.join(sites.siteDir(s.name), 'node_modules');
-    const before = realDirSize(nm);
-    fs.rmSync(nm, { recursive: true, force: true }); // rm never follows symlinks
+    const before = await realDirSize(nm);
+    await fs.promises.rm(nm, { recursive: true, force: true }); // rm never follows symlinks; async so websites keep being served
     usageCache.delete(s.name);
+    forgetFolderSize(sites.siteDir(s.name));
     if (body.reinstall) deploy.deploy(s.name, { reason: 'clean reinstall', pull: false, by: 'you' });
     return { freed: before, reinstalling: !!body.reinstall };
   });
@@ -177,4 +183,5 @@ export function register(on, { q }) {
 /** Drop everything cached in memory for a website that was deleted. */
 export function forgetSite(name) {
   usageCache.delete(name);
+  forgetFolderSize(sites.siteDir(name));
 }

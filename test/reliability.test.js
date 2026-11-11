@@ -206,3 +206,32 @@ test('saving a file keeps its permissions and leaves no temp files', async () =>
   if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(dir, 'run.sh')).mode & 0o777, 0o755);
   assert.deepEqual(fs.readdirSync(dir).filter((f) => f.includes('autonode-tmp')), []);
 });
+
+test('dashboard files are compressed, revalidated with an ETag, and never served from outside public/', async () => {
+  const first = await call({ url: '/app.js', headers: { 'accept-encoding': 'gzip, br' } }).done;
+  assert.equal(first.status, 200);
+  assert.equal(first.headers['content-encoding'], 'gzip');
+  assert.equal(first.headers['cache-control'], 'no-cache');
+  assert.ok(first.headers.etag);
+  const again = await call({ url: '/app.js', headers: { 'if-none-match': first.headers.etag } }).done;
+  assert.equal(again.status, 304);
+  const plain = await call({ url: '/app.js' }).done;
+  assert.equal(plain.headers['content-encoding'], undefined);
+  assert.match(plain.body, /function/);
+  assert.equal((await call({ url: '/some/page' }).done).headers['content-type'], 'text/html; charset=utf-8'); // app routes get index.html
+  assert.equal((await call({ url: '/missing.js' }).done).status, 404);
+  assert.notEqual((await call({ url: '/%2e%2e/package.json' }).done).status, 200);
+});
+
+test('folder sizes are counted without blocking, cached and shared', async () => {
+  const dir = path.join(tmp, 'sized');
+  fs.mkdirSync(path.join(dir, 'a', 'b'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'one.txt'), 'x'.repeat(100));
+  fs.writeFileSync(path.join(dir, 'a', 'b', 'two.txt'), 'y'.repeat(50));
+  assert.equal(await files.folderSizeAsync(dir), files.folderSize(dir));
+  assert.equal(await files.cachedFolderSize(dir), 150);
+  fs.writeFileSync(path.join(dir, 'three.txt'), 'z'.repeat(10));
+  assert.equal(await files.cachedFolderSize(dir), 150, 'a fresh cached value is reused');
+  assert.equal(await files.cachedFolderSize(dir, { fresh: true }), 160);
+  assert.deepEqual(await Promise.all([files.cachedFolderSize(path.join(dir, 'a')), files.cachedFolderSize(path.join(dir, 'a'))]), [50, 50], 'concurrent first callers share one walk');
+});

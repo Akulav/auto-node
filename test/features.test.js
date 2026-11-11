@@ -218,12 +218,12 @@ test('health probe: healthy, server error and down', async () => {
 
 /* ----------------------------------------------------- usage and backups */
 
-test('disk usage separates code, packages and data', () => {
+test('disk usage separates code, packages and data', async () => {
   const dir = sites.siteDir('shop');
   fs.mkdirSync(path.join(dir, 'node_modules', 'pkg'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'node_modules', 'pkg', 'index.js'), 'x'.repeat(5000));
   fs.writeFileSync(path.join(sites.siteDataDir('shop'), 'app.db'), 'y'.repeat(3000));
-  const u = features.usage('shop', { fresh: true });
+  const u = await features.usage('shop', { fresh: true });
   assert.equal(u.nodeModules, 5000);
   assert.equal(u.data, 3000);
   assert.ok(u.code > 0);

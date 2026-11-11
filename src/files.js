@@ -260,6 +260,64 @@ export function downloadStream(name, rel) {
   return { stream: fs.createReadStream(null, { fd, autoClose: true }), size: st.size, filename: path.basename(full) };
 }
 
+/**
+ * Like folderSize(), but never blocks: the dashboard and the public proxy share one
+ * process, so a synchronous walk of a big node_modules would stall every website.
+ * Symlinks are never followed. Stops counting after 200 000 entries.
+ */
+export async function folderSizeAsync(dir) {
+  let total = 0;
+  let count = 0;
+  const stack = [dir];
+  while (stack.length && count < 200_000) {
+    const d = stack.pop();
+    let entries = [];
+    try {
+      entries = await fs.promises.readdir(d, { withFileTypes: true });
+    } catch {}
+    const filePaths = [];
+    for (const e of entries) {
+      count++;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else if (e.isFile()) filePaths.push(p);
+    }
+    for (let i = 0; i < filePaths.length; i += 64) {
+      const sizes = await Promise.all(filePaths.slice(i, i + 64).map((p) => fs.promises.lstat(p).then((s) => s.size, () => 0)));
+      for (const s of sizes) total += s;
+    }
+  }
+  return total;
+}
+
+const sizeCache = new Map(); // dir -> { at, value, pending }
+const SIZE_TTL = 60_000;
+
+/**
+ * Cached folderSizeAsync(). A fresh value is returned as is; a stale one is returned
+ * right away while a new count runs in the background. Only the first ever call waits.
+ * Concurrent callers share one walk.
+ */
+export async function cachedFolderSize(dir, { fresh = false } = {}) {
+  let c = sizeCache.get(dir);
+  if (!c) sizeCache.set(dir, (c = { at: 0, value: null, pending: null }));
+  const refresh = () =>
+    (c.pending ||= folderSizeAsync(dir)
+      .then((v) => {
+        c.value = v;
+        c.at = Date.now();
+        return v;
+      })
+      .finally(() => (c.pending = null)));
+  if (fresh || c.value == null) return refresh();
+  if (Date.now() - c.at > SIZE_TTL) refresh().catch(() => {});
+  return c.value;
+}
+
+export function forgetFolderSize(prefix) {
+  for (const k of sizeCache.keys()) if (k === prefix || k.startsWith(prefix + path.sep)) sizeCache.delete(k);
+}
+
 export function folderSize(dir) {
   let total = 0;
   const stack = [dir];

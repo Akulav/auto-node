@@ -148,6 +148,11 @@ function handle(secure) {
         },
       );
       up.setTimeout(10 * 60_000, () => up.destroy(new Error('timeout'))); // idle time; slow reports/exports need more than 2 min
+      // The visitor left (closed the tab, lost signal) before the answer was complete: stop
+      // the request to the website too. Otherwise streams (SSE, long polling) stay open forever.
+      res.on('close', () => {
+        if (!res.writableFinished) up.destroy();
+      });
       up.on('error', () => {
         if (!res.headersSent) page(res, 502, 'Starting up…', 'This website is not responding right now. If you own it, check that it is running in AutoNode.');
         else res.destroy();
@@ -198,6 +203,9 @@ function handleUpgrade(secure) {
     });
     up.on('error', () => socket.destroy());
     socket.on('error', () => up.destroy());
+    // Either side hanging up ends the other, so a dropped WebSocket never leaves a half-open link.
+    up.on('close', () => socket.destroy());
+    socket.on('close', () => up.destroy());
   };
 }
 

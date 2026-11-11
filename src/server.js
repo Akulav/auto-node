@@ -3,6 +3,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import zlib from 'node:zlib';
 import * as config from './config.js';
 import * as auth from './auth.js';
 import * as stats from './stats.js';
@@ -51,6 +52,22 @@ function sse(req, res) {
   return send;
 }
 
+/**
+ * Website status for the live views. Every open dashboard tab gets the same answer,
+ * so one `systemctl show` per second serves them all instead of one per tab every tick.
+ */
+let liveCache = { at: 0, value: null, pending: null };
+function liveSites() {
+  if (liveCache.value && Date.now() - liveCache.at < 1000) return Promise.resolve(liveCache.value);
+  return (liveCache.pending ||= sites
+    .withStatus(sites.allSites())
+    .then((value) => {
+      liveCache = { at: Date.now(), value, pending: null };
+      return value;
+    })
+    .finally(() => (liveCache.pending = null)));
+}
+
 async function cloudflareSummary() {
   const c = config.get().cloudflare;
   return { connected: !!c.apiToken, ddns: c.ddns, lastIp: c.lastIp, lastSync: c.lastSync, lastError: c.lastError };
@@ -97,7 +114,7 @@ on('POST', '/api/logout', async (req, res) => {
 on('GET', '/api/overview', async () => ({
   stats: stats.latestSample(),
   history: stats.getHistory(),
-  sites: await sites.withStatus(sites.allSites()),
+  sites: await liveSites(),
   proxy: proxy.status,
   runner: runnerKind(),
   cloudflare: await cloudflareSummary(),
@@ -111,7 +128,7 @@ on('GET', '/api/stream', async (req, res) => {
   const send = sse(req, res);
   const push = async (s) => {
     try {
-      send('stats', { stats: s, sites: await sites.withStatus(sites.allSites()) });
+      send('stats', { stats: s, sites: await liveSites() });
     } catch {}
   };
   push(stats.latestSample());
@@ -142,10 +159,8 @@ on('POST', '/api/sites', async (req, res, p, body) => {
 on('GET', '/api/sites/:name', async (req, res, p) => {
   const s = sites.getSite(p.name);
   const [withStatus] = await sites.withStatus([s]);
-  let size = null;
-  try {
-    size = files.folderSize(sites.siteDir(s.name));
-  } catch {}
+  // Cached and non-blocking: this runs on every site page and tab switch.
+  const size = await files.cachedFolderSize(sites.siteDir(s.name)).catch(() => null);
   return { ...withStatus, size, deploy: deploy.jobStatus(s.name), health: health.statusOf(s.name), lanUrl: `http://${lanAddress()}:${s.port}`, certs: Object.fromEntries(s.hostnames.map((h) => [h, certs.hasCertFor(h)])) };
 });
 
@@ -372,12 +387,37 @@ function serveStatic(req, res, url) {
   }
   if (rel === '/' || !path.extname(rel)) rel = '/index.html';
   const file = path.join(PUBLIC, path.normalize(rel));
-  if (!file.startsWith(PUBLIC)) return sendJson(res, 400, { error: 'bad path' });
-  fs.readFile(file, (err, data) => {
-    if (err) return sendJson(res, 404, { error: 'Not found' });
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' }); // revalidate: a self-update must never leave a stale UI behind
-    res.end(data);
-  });
+  if (file !== PUBLIC && !file.startsWith(PUBLIC + path.sep)) return sendJson(res, 400, { error: 'bad path' });
+  return loadStatic(file).then(
+    (f) => {
+      // no-cache = revalidate every time (a self-update must never leave a stale UI behind);
+      // the ETag makes that revalidation a tiny 304 instead of the whole file.
+      const headers = { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', ETag: f.etag, Vary: 'Accept-Encoding' };
+      if (req.headers['if-none-match'] === f.etag) {
+        res.writeHead(304, headers);
+        return res.end();
+      }
+      const gzip = f.gz && /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
+      const body = gzip ? f.gz : f.raw;
+      res.writeHead(200, { ...headers, ...(gzip ? { 'Content-Encoding': 'gzip' } : {}), 'Content-Length': body.length });
+      res.end(req.method === 'HEAD' ? undefined : body);
+    },
+    () => sendJson(res, 404, { error: 'Not found' }),
+  );
+}
+
+/** The dashboard's own files, kept in memory (and pre-compressed) until they change on disk. */
+const staticCache = new Map(); // file -> { mtimeMs, size, etag, raw, gz }
+async function loadStatic(file) {
+  const st = await fs.promises.stat(file);
+  if (!st.isFile()) throw new Error('not a file');
+  const hit = staticCache.get(file);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit;
+  const raw = await fs.promises.readFile(file);
+  const compressible = /\.(html|js|css|svg|json|webmanifest)$/.test(file) && raw.length > 1024;
+  const entry = { mtimeMs: st.mtimeMs, size: st.size, etag: `W/"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`, raw, gz: compressible ? zlib.gzipSync(raw) : null };
+  staticCache.set(file, entry);
+  return entry;
 }
 
 /** Every dashboard request (exported for tests). */
@@ -452,6 +492,17 @@ export async function handler(req, res) {
 }
 
 export async function serve() {
+  // This one process also runs the public proxy: a stray rejected promise must not take
+  // every website offline. Log it and keep serving. A thrown exception may leave things
+  // half-done, so save what we can and let systemd (Restart=always) start a clean process.
+  process.on('unhandledRejection', (err) => console.error('[autonode] Unexpected error (still running):', err));
+  process.on('uncaughtException', (err) => {
+    console.error('[autonode] Crashed:', err);
+    try {
+      visitors.flush();
+    } catch {}
+    process.exit(1);
+  });
   config.load();
   certs.reload();
   stats.startSampling();
