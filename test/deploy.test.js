@@ -19,6 +19,7 @@ const sites = await import('../src/sites.js');
 const deploy = await import('../src/deploy.js');
 const locks = await import('../src/locks.js');
 const runner = await import('../src/runner.js');
+const rescuedApi = await import('../src/rescued.js');
 
 const remote = path.join(tmp, 'remote.git');
 const work = path.join(tmp, 'work');
@@ -143,6 +144,23 @@ test('a website-made file at a path the update adds pauses; "use GitHub" replace
   const rescued = path.join(config.paths.dataDir, 'rescued', 'app');
   const copies = fs.readdirSync(rescued).filter((d) => d.endsWith('overwritten'));
   assert.equal(fs.readFileSync(path.join(rescued, copies.at(-1), 'notes.txt'), 'utf8'), 'website notes');
+
+  // The dashboard lists, downloads and deletes those copies.
+  const listed = rescuedApi.list('app');
+  const entry = listed.find((r) => r.id === copies.at(-1));
+  assert.equal(entry.kind, 'overwritten');
+  assert.ok(!Number.isNaN(Date.parse(entry.at)));
+  assert.deepEqual(entry.files, [{ path: 'notes.txt', size: 'website notes'.length }]);
+  const { stream } = rescuedApi.downloadStream('app', entry.id, 'notes.txt');
+  let text = '';
+  for await (const chunk of stream) text += chunk;
+  assert.equal(text, 'website notes');
+  assert.throws(() => rescuedApi.downloadStream('app', entry.id, '../../../etc/passwd'), /Invalid path|not found/i);
+  assert.throws(() => rescuedApi.remove('app', '../app'), /no longer exists/);
+  rescuedApi.remove('app', entry.id);
+  assert.equal(rescuedApi.list('app').some((r) => r.id === entry.id), false);
+  rescuedApi.removeAll('app');
+  assert.deepEqual(rescuedApi.list('app'), []);
 });
 
 test('a symlink the repo puts over a locked file is replaced, never written through', { skip: (!HAS_GIT && 'git not installed') || (process.platform === 'win32' && 'git on Windows checks out symlinks as plain files') }, async () => {

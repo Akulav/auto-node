@@ -1228,7 +1228,7 @@ async function siteGithub(site) {
               class: 'btn danger',
               onclick: async (e) => {
                 const btn = e.currentTarget;
-                if (!(await confirmSheet({ title: 'Use the GitHub versions?', text: `${files.map((f) => f.path).join(', ')} will be replaced with the version from GitHub. A copy of the current files is saved first, in /var/lib/autonode/rescued/${site.name}.`, ok: 'Replace Files', danger: true }))) return;
+                if (!(await confirmSheet({ title: 'Use the GitHub versions?', text: `${files.map((f) => f.path).join(', ')} will be replaced with the version from GitHub. A copy of the current files is saved first — you'll find it under Rescued files on the Deploys tab.`, ok: 'Replace Files', danger: true }))) return;
                 deployNow({ currentTarget: btn }, 'overwrite');
               },
             },
@@ -1997,7 +1997,7 @@ async function siteDomainsAndAccess(site) {
 
 async function siteDeploys(site) {
   const el = await siteGithub(site);
-  const [{ history }, { snapshots, keep }] = await Promise.all([api('GET', `/api/sites/${site.name}/history`), api('GET', `/api/sites/${site.name}/snapshots`)]);
+  const [{ history }, { snapshots, keep }, { rescued }] = await Promise.all([api('GET', `/api/sites/${site.name}/history`), api('GET', `/api/sites/${site.name}/snapshots`), api('GET', `/api/sites/${site.name}/rescued`)]);
   const snapIds = new Set(snapshots.map((s) => s.id));
 
   const restoreSnap = async (id, btn) => {
@@ -2085,8 +2085,87 @@ async function siteDeploys(site) {
       h('div', { class: 'section-head' }, h('div', {}, h('h2', {}, 'Snapshots'), h('p', { class: 'muted small' }, `Copies of the website folder for rolling back. Taken before every GitHub deploy; the newest ${keep} are kept.`)), (snapBtn = h('button', { class: 'btn sm', onclick: () => busy(snapBtn, async () => (await api('POST', `/api/sites/${site.name}/snapshots`), toast('Snapshot saved ✓'), render())) }, icon('box'), 'Take Snapshot Now'))),
       snapList,
     ),
+    (site.git || rescued.length > 0) && rescuedSection(site, rescued),
   );
   return el;
+}
+
+/** Copies of files saved before a GitHub update kept or replaced them. */
+function rescuedSection(site, rescued) {
+  const base = `/api/sites/${site.name}/rescued`;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  let allBtn;
+  const removeAll = async () => {
+    const ok = await confirmSheet({ title: 'Delete all saved copies?', text: `${rescued.length === 1 ? '1 saved copy' : `${rescued.length} saved copies`} of website files will be deleted. This can't be undone. Your website's current files are not affected.`, ok: 'Delete All', danger: true });
+    if (!ok) return;
+    await busy(allBtn, async () => {
+      await api('DELETE', base);
+      toast('Saved copies deleted ✓');
+      render();
+    });
+  };
+  const removeOne = async (r, btn) => {
+    const ok = await confirmSheet({ title: 'Delete this saved copy?', text: `${r.files.map((f) => f.path).join(', ')} — this copy will be deleted and can't be brought back. Your website's current files are not affected.`, ok: 'Delete', danger: true });
+    if (!ok) return;
+    await busy(btn, async () => {
+      await api('DELETE', `${base}/${r.id}`);
+      toast('Saved copy deleted ✓');
+      render();
+    });
+  };
+  const total = rescued.reduce((n, r) => n + r.size, 0);
+
+  const list = h(
+    'div',
+    { class: 'list' },
+    !rescued.length && h('div', { class: 'item' }, h('div', { class: 'muted small' }, 'Nothing saved yet. When an update keeps or replaces files your website changed, a copy of them appears here.')),
+    rescued.map((r) => {
+      let delBtn;
+      return h(
+        'div',
+        { class: 'item', style: 'flex-wrap:wrap' },
+        h('span', { style: 'display:flex;color:var(--accent)' }, icon(r.kind === 'kept' ? 'lock' : 'download')),
+        h(
+          'div',
+          { class: 'grow', style: 'min-width:0' },
+          h('div', { class: 'label' }, new Date(r.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })),
+          h('div', { class: 'small muted ellipsis' }, `${r.kind === 'kept' ? 'Server versions kept' : 'Replaced with the GitHub versions'} · ${plural(r.files.length, 'file')} · ${fmtBytes(r.size)}`),
+        ),
+        (delBtn = h('button', { class: 'btn icon ghost', title: 'Delete saved copy', style: 'color:var(--bad)', onclick: () => removeOne(r, delBtn) }, icon('trash'))),
+        r.files.length > 0 &&
+          h(
+            'details',
+            { class: 'more', style: 'flex-basis:100%' },
+            h('summary', {}, 'Show files'),
+            h(
+              'div',
+              { class: 'list', style: 'box-shadow:none;margin-top:8px' },
+              r.files.map((f) =>
+                h(
+                  'div',
+                  { class: 'item' },
+                  h('code', { class: 'grow ellipsis' }, f.path),
+                  h('span', { class: 'small muted' }, fmtBytes(f.size)),
+                  h('a', { class: 'btn icon ghost', title: 'Download', href: `${base}/${encodeURIComponent(r.id)}/file?path=${encodeURIComponent(f.path)}` }, icon('download')),
+                ),
+              ),
+            ),
+          ),
+      );
+    }),
+  );
+
+  return h(
+    'div',
+    { class: 'section', style: 'margin-top:12px' },
+    h(
+      'div',
+      { class: 'section-head' },
+      h('div', {}, h('h2', {}, 'Rescued files'), h('p', { class: 'muted small' }, `Copies saved before an update kept or replaced files your website changed. The newest 20 are kept${rescued.length ? ` · ${fmtBytes(total)} in total` : ''}.`)),
+      rescued.length > 0 && (allBtn = h('button', { class: 'btn sm danger', onclick: removeAll }, icon('trash'), 'Delete All')),
+    ),
+    list,
+  );
 }
 
 /* ---- scheduled tasks */

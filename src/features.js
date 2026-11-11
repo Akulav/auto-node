@@ -8,6 +8,7 @@ import path from 'node:path';
 import * as config from './config.js';
 import * as sites from './sites.js';
 import * as snapshots from './snapshots.js';
+import * as rescued from './rescued.js';
 import * as history from './history.js';
 import * as health from './health.js';
 import * as traffic from './traffic.js';
@@ -78,6 +79,18 @@ export function register(on, { q }) {
     config.update((c) => (c.snapshots.keep = keep));
     return { keep };
   });
+
+  // Rescued files (copies saved before an update kept or replaced website files)
+  on('GET', '/api/sites/:name/rescued', async (req, res, p) => ({ rescued: rescued.list(site(p).name) }));
+  on('GET', '/api/sites/:name/rescued/:id/file', async (req, res, p) => {
+    const { stream, size, filename } = rescued.downloadStream(site(p).name, p.id, q(req).get('path'));
+    const ascii = filename.replace(/[^\x20-\x7e]|["\\]/g, '_');
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': size, 'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(filename)}` });
+    stream.pipe(res);
+    return undefined;
+  });
+  on('DELETE', '/api/sites/:name/rescued/:id', async (req, res, p) => (rescued.remove(site(p).name, p.id), { ok: true }));
+  on('DELETE', '/api/sites/:name/rescued', async (req, res, p) => ({ removed: rescued.removeAll(site(p).name) }));
 
   // Deploy history
   on('GET', '/api/sites/:name/history', async (req, res, p) => ({ history: history.list(site(p).name) }));

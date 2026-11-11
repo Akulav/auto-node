@@ -72,7 +72,7 @@ export function scan(now) {
     groups,
     count: found.length,
     size: found.reduce((n, f) => n + f.size, 0),
-    usage: { snapshots: folderSize(P.snapshotsDir), backups: folderSize(P.backupsDir), rescued: folderSize(path.join(P.dataDir, 'rescued')) },
+    usage: { snapshots: folderSize(P.snapshotsDir), backups: folderSize(P.backupsDir), rescued: folderSize(P.rescuedDir) },
   };
 }
 

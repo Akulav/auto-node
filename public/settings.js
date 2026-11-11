@@ -345,7 +345,7 @@ async function storageTab() {
           { class: 'list' },
           row('Snapshots', ['Copies of each website for rollback. Choose how many to keep in ', h('a', { href: '#/settings/server' }, 'Web Server'), '.'], amount(fmtBytes(r.usage.snapshots))),
           row('Saved backups', ['Scheduled backups are removed by age; ones you made stay until you delete them in ', h('a', { href: '#/settings/backups' }, 'Backups'), '.'], amount(fmtBytes(r.usage.backups))),
-          row('Rescued files', 'Copies of files an update kept or replaced. The last 20 per website are kept.', amount(fmtBytes(r.usage.rescued))),
+          row('Rescued files', "Copies of files an update kept or replaced. The last 20 per website are kept; view or delete them on each website's Deploys tab.", amount(fmtBytes(r.usage.rescued))),
         ),
       ),
     ]);

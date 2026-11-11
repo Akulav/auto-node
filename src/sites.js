@@ -241,7 +241,7 @@ export async function deleteSite(name) {
   await runner().remove(name);
   fs.rmSync(siteDir(name), { recursive: true, force: true });
   fs.rmSync(siteDataDir(name), { recursive: true, force: true });
-  for (const d of [config.paths.snapshotsDir, config.paths.historyDir, config.paths.tasksDir]) fs.rmSync(path.join(d, name), { recursive: true, force: true });
+  for (const d of [config.paths.snapshotsDir, config.paths.rescuedDir, config.paths.historyDir, config.paths.tasksDir]) fs.rmSync(path.join(d, name), { recursive: true, force: true });
   for (const f of [path.join(config.paths.historyDir, `${name}.json`), path.join(config.paths.visitorsDir, `${name}.json`)]) fs.rmSync(f, { force: true });
   config.update((c) => {
     delete c.sites[name];

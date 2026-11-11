@@ -28,6 +28,8 @@ export const paths = {
   // Each website's DATA_DIR: never touched by deploys, rollbacks or "clean".
   siteDataRoot: path.join(dataDir, 'sitedata'),
   snapshotsDir: path.join(dataDir, 'snapshots'),
+  // Copies of files a GitHub update kept or replaced, per site.
+  rescuedDir: path.join(dataDir, 'rescued'),
   historyDir: path.join(dataDir, 'history'),
   backupsDir: path.join(dataDir, 'backups'),
   visitorsDir: path.join(dataDir, 'visitors'),
@@ -58,7 +60,7 @@ let state = null;
 
 function ensureDirs() {
   const all = [paths.configDir, paths.certsDir, paths.envDir, paths.dataDir, paths.sitesDir, paths.runDir, paths.homeDir, paths.tmpDir, paths.siteDataRoot];
-  const rootOnly = [paths.snapshotsDir, paths.historyDir, paths.backupsDir, paths.visitorsDir, paths.tasksDir];
+  const rootOnly = [paths.snapshotsDir, paths.rescuedDir, paths.historyDir, paths.backupsDir, paths.visitorsDir, paths.tasksDir];
   for (const d of [...all, ...rootOnly]) fs.mkdirSync(d, { recursive: true });
   try {
     fs.chmodSync(paths.configDir, 0o700); // secrets: root only

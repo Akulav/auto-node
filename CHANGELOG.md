@@ -2,6 +2,16 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.5.1] - 2026-11-11
+
+### Added
+
+- **Rescued files.** Deploys → Rescued files lists the copies AutoNode saves before a GitHub update keeps or replaces files your website changed, newest first. Open a copy to see its files and download any of them, delete one copy, or Delete All. Your website's current files are never affected. Settings → Storage points there.
+
+### Fixed
+
+- **Saved copies were left behind when a website was deleted.** Deleting a website now also removes its rescued files.
+
 ## [1.5.0] - 2026-11-11
 
 ### Added

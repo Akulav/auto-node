@@ -271,7 +271,7 @@ export async function planUpdate(site, rev = 'FETCH_HEAD') {
 function rescue(site, paths, label) {
   paths = paths.filter((p) => plainFile(site, p));
   if (!paths.length) return null;
-  const top = path.join(config.paths.dataDir, 'rescued');
+  const top = config.paths.rescuedDir;
   fs.mkdirSync(top, { recursive: true, mode: 0o700 });
   fs.chmodSync(top, 0o700); // copies may hold database contents: root only
   const root = path.join(top, site.name);
