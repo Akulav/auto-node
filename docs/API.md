@@ -18,9 +18,7 @@ The dashboard talks to AutoNode over a small JSON API on port `7070`. All routes
 | Method | Path | Notes |
 | --- | --- | --- |
 | GET | `/api/overview` | Stats, history, websites with status, proxy/Cloudflare/cert summary |
-| GET | `/api/hardware?fresh=1` | Disk health and temperatures → `{ smart: { state, message, canInstall, checkedAt }, disks, temperatures, temperaturesMessage }`. `state` is `ok`, `missing`, `old`, `none`, `error` or `unavailable`; `fresh=1` re-reads the disks (at most every 15 s) |
-| POST | `/api/hardware/install` | Install smartmontools with the system package manager (Linux, root, not in dev mode) |
-| GET | `/api/stream` | Server-Sent Events, `stats` event every 2 s: `{ stats, sites }` |
+| GET | `/api/stream` | Server-Sent Events, `stats` event every 2 s: `{ stats, sites }`. `stats.temperatures` is `[{ kind, label, detail, celsius, limit, level }]` (empty without sensors), `stats.temperature` the processor's (else the hottest) |
 
 ## Websites
 

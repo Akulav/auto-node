@@ -2,6 +2,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import * as config from './config.js';
 import { isLinux } from './util.js';
+import { readTemperatures, mainTemperature } from './temperatures.js';
 
 let lastCpu = cpuTimes();
 let lastNet = null;
@@ -63,20 +64,8 @@ function netCounters() {
   }
 }
 
-function temperature() {
-  if (!isLinux) return null;
-  try {
-    const zones = fs.readdirSync('/sys/class/thermal').filter((z) => z.startsWith('thermal_zone'));
-    let max = null;
-    for (const z of zones) {
-      const t = Number(fs.readFileSync(`/sys/class/thermal/${z}/temp`, 'utf8')) / 1000;
-      if (Number.isFinite(t) && t > 0 && (max == null || t > max)) max = t;
-    }
-    return max;
-  } catch {
-    return null;
-  }
-}
+/** Per-part temperatures (a few tiny sysfs reads; empty on VMs, containers and in dev mode off Linux). */
+const temperatures = () => (isLinux ? readTemperatures() : []);
 
 export function sample() {
   const now = cpuTimes();
@@ -98,7 +87,9 @@ export function sample() {
   const mem = memory();
   const root = disk(isLinux ? '/' : config.paths.dataDir);
   const sites = disk(config.paths.sitesDir);
-  const point = { t, cpu, mem: (mem.used / mem.total) * 100, rx: netRate?.rx ?? null, tx: netRate?.tx ?? null };
+  const temps = temperatures();
+  const main = mainTemperature(temps);
+  const point = { t, cpu, mem: (mem.used / mem.total) * 100, temp: main?.celsius ?? null, disk: root?.total ? (root.used / root.total) * 100 : null, rx: netRate?.rx ?? null, tx: netRate?.tx ?? null };
   history.push(point);
   if (history.length > HISTORY) history.shift();
 
@@ -109,7 +100,8 @@ export function sample() {
     disk: root,
     sitesDisk: sites && root && sites.total !== root.total ? sites : null,
     network: netRate,
-    temperature: temperature(),
+    temperature: main?.celsius ?? null,
+    temperatures: temps,
     uptime: os.uptime(),
     hostname: os.hostname(),
     platform: `${os.type()} ${os.release()}`,

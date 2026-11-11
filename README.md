@@ -20,8 +20,7 @@ Made with ♥ by **Akulav**
 
 | | |
 | --- | --- |
-| **Live overview** | CPU, memory and free disk space in real time, with history charts, temperature, network speed and uptime. |
-| **Hardware health** | Temperatures for each part (processor, graphics card, mainboard, disks…) and the health of every disk from S.M.A.R.T.: healthy, showing wear or failing, in plain words — plus SSD wear, power-on time and damaged areas. Sleeping disks are never woken. Needs smartmontools, which AutoNode can install in one click. |
+| **Live overview** | CPU, memory, free disk space and temperature in real time, side by side with history charts, plus network speed and uptime. The temperature card leads with the processor and turns orange or red as a part nears its safe limit. |
 | **Websites** | Create a site from a starter page, a GitHub repo or your own files. Start, stop and restart with one click. Each site runs as its own system service and survives reboots. |
 | **Node.js and Rust** | AutoNode sees what kind of website it is. Node.js: `npm`/`pnpm`/`yarn` install, `npm run build`, `npm start`. Rust (a `Cargo.toml`): `cargo build --release`, then the program from `target/release/`. Your own start, install and build commands always win. |
 | **Files** | Browse, upload (files, whole folders or a .zip), edit, rename, download and delete — right in the browser. |

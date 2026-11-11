@@ -2,6 +2,17 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.8.0] - 2026-11-11
+
+### Changed
+
+- **Temperature sits next to CPU, memory and storage.** The Overview's top row is now four matching cards — Processor, Memory, Storage and Temperature — each with a ring, its numbers and a few minutes of history. The temperature card leads with the processor (else the hottest part), shows the next hottest part below it, lists every reading when you hover it, and turns orange or red as a part nears its safe limit. It updates live with the other cards. The four cards stay the same size: four across on wide screens, two by two on smaller ones, one column on a phone.
+- Storage now also shows a ring and a history line, like the other cards.
+
+### Removed
+
+- **Disk health (S.M.A.R.T.).** The Hardware section, the smartmontools install button and the `/api/hardware` routes are gone. Temperatures moved to the Overview's top row.
+
 ## [1.7.1] - 2026-11-11
 
 ### Fixed

@@ -1,7 +1,7 @@
 /**
  * Dashboard API for: snapshots & rollback, deploy history, health checks,
  * traffic rules (www, redirects, maintenance, password), visitor stats,
- * scheduled tasks, disk usage, hardware health, activity log. (Settings-page routes live in settings.js.)
+ * scheduled tasks, disk usage, activity log. (Settings-page routes live in settings.js.)
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,7 +17,6 @@ import * as tasks from './tasks.js';
 import * as activity from './activity.js';
 import * as deploy from './deploy.js';
 import * as cf from './cloudflare.js';
-import * as hardware from './hardware.js';
 import { folderSizeAsync, forgetFolderSize } from './files.js';
 import { HttpError } from './util.js';
 
@@ -182,10 +181,6 @@ export function register(on, { q }) {
     if (body.reinstall) deploy.deploy(s.name, { reason: rustSite ? 'clean rebuild' : 'clean reinstall', pull: false, by: 'you' });
     return { freed: before, reinstalling: !!body.reinstall, kind: rustSite ? 'rust' : 'node' };
   });
-
-  // Hardware health: disk S.M.A.R.T. and temperatures (Overview page)
-  on('GET', '/api/hardware', async (req) => hardware.snapshot({ fresh: q(req).get('fresh') === '1' }));
-  on('POST', '/api/hardware/install', async () => hardware.install());
 
   // Activity log
   on('GET', '/api/activity', async (req) => ({ entries: activity.list({ limit: Math.min(500, Number(q(req).get('limit')) || 200), site: q(req).get('site') || null, before: q(req).get('before') || null }), keepDays: activity.KEEP_DAYS }));

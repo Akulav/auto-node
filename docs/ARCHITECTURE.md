@@ -32,8 +32,8 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/config.js` | Paths, defaults, atomic JSON config (`/etc/autonode/config.json`, mode 600) |
 | `src/server.js` | HTTP API router, auth gate, CSRF/origin check, static files, startup |
 | `src/auth.js` | scrypt password hash, HMAC-signed session cookie, LAN address check |
-| `src/stats.js` | CPU/memory/disk/network sampling every 2 s, 3-minute history, SSE fan-out |
-| `src/hardware.js` | Disk health from `smartctl -j` (smartmontools; cached 5 min, at most every 15 s, `-n standby` so sleeping disks stay asleep) and per-part temperatures from `/sys/class/hwmon` + `/sys/class/thermal`; optional one-click install of smartmontools with the system package manager (fixed arguments) |
+| `src/stats.js` | CPU/memory/disk/temperature/network sampling every 2 s, 3-minute history, SSE fan-out |
+| `src/temperatures.js` | Per-part temperatures (processor, graphics card, mainboard, disks…) from `/sys/class/hwmon` + `/sys/class/thermal`, with each part's safe limit |
 | `src/sites.js` | Website CRUD, port allocation, start-command detection, ownership |
 | `src/runner.js` | systemd units, status (`systemctl show`), logs (`journalctl`); in-process fallback for dev |
 | `src/proxy.js` | Reverse proxy with SNI, WebSocket upgrade, HTTPS redirect, deploy-hook path |

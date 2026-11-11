@@ -118,12 +118,13 @@ function ring(pct = 0) {
     h('svg', { viewBox: '0 0 100 100' }, h('circle', { svg: true, class: 'track', cx: 50, cy: 50, r: R, fill: 'none', 'stroke-width': 9 }), (bar = h('circle', { svg: true, class: 'bar', cx: 50, cy: 50, r: R, fill: 'none', 'stroke-width': 9, 'stroke-linecap': 'round', 'stroke-dasharray': C, 'stroke-dashoffset': C }))),
     (val = h('div', { class: 'val' }, '—')),
   );
-  const set = (p) => {
+  /** p: how full the ring is (0–100). text/lvl override the label and colour (e.g. "52°" for a temperature). */
+  const set = (p, text, lvl) => {
     p = Math.max(0, Math.min(100, p || 0));
     bar.setAttribute('stroke-dashoffset', String(C * (1 - p / 100)));
-    wrap.className = `ring ${level(p)}`;
-    val.textContent = fmtPct(p);
-    wrap.setAttribute('aria-label', `${Math.round(p)} percent`);
+    wrap.className = `ring ${lvl ?? level(p)}`;
+    val.textContent = text ?? fmtPct(p);
+    wrap.setAttribute('aria-label', text ?? `${Math.round(p)} percent`);
   };
   set(pct);
   return { el: wrap, set };
@@ -283,39 +284,74 @@ function shell(route, content) {
 
 /* ========================================================= overview */
 
+/** One Overview metric: ring and numbers on top, history at the bottom (same layout for all four, so they line up). */
+function metricCard(gauge, label, big, sub, spark, card = h('div', { class: 'card metric-card' })) {
+  return append(card, [h('div', { class: 'gauge-card' }, gauge.el, h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'metric-label' }, label), big, sub)), spark.el]);
+}
+
 async function overviewView() {
   const o = await api('GET', '/api/overview');
   const hour = new Date().getHours();
   const greet = hour < 5 ? 'Good night' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
+  // Four matching cards: ring + numbers on top, a few minutes of history below.
   const cpuRing = ring(o.stats.cpu.percent);
   const memRing = ring((o.stats.memory.used / o.stats.memory.total) * 100);
+  const diskRing = ring(0);
+  const tempRing = ring(0, '—');
+  const fmtTemp = (c) => `${Math.round(c)} °C`;
   const cpuSpark = sparkline({ label: 'CPU usage over the last few minutes' });
   const memSpark = sparkline({ label: 'Memory usage over the last few minutes' });
-  cpuSpark.set(o.history.map((p) => ({ t: p.t, v: p.cpu })));
-  memSpark.set(o.history.map((p) => ({ t: p.t, v: p.mem })));
+  const diskSpark = sparkline({ label: 'Disk space used over the last few minutes' });
+  const tempSpark = sparkline({ label: 'Temperature over the last few minutes', format: fmtTemp });
+  const historyOf = (key) => o.history.filter((p) => p[key] != null).map((p) => ({ t: p.t, v: p[key] }));
+  cpuSpark.set(historyOf('cpu'));
+  memSpark.set(historyOf('mem'));
+  diskSpark.set(historyOf('disk'));
+  tempSpark.set(historyOf('temp'));
   const cpuSub = h('div', { class: 'metric-sub' });
   const memBig = h('div', { class: 'metric-big' });
   const memSub = h('div', { class: 'metric-sub' });
   const diskBig = h('div', { class: 'metric-big' });
   const diskSub = h('div', { class: 'metric-sub' });
-  const diskBar = h('div', { class: 'bar-meter' }, h('i'));
+  const tempBig = h('div', { class: 'metric-big ellipsis' });
+  const tempSub = h('div', { class: 'metric-sub' });
+  const tempCard = h('div', { class: 'card metric-card' });
   const sysKv = h('dl', { class: 'kv' });
   const sitesList = h('div', { class: 'list' });
 
   const paint = (st, siteList) => {
     cpuRing.set(st.cpu.percent);
-    cpuSub.textContent = `${st.cpu.cores} cores · load ${st.cpu.load.map((l) => l.toFixed(2)).join(' ')}`;
+    cpuSub.textContent = `${st.cpu.cores} cores · load ${st.cpu.load[0].toFixed(2)}`;
+    cpuSub.title = `Load over 1, 5 and 15 minutes: ${st.cpu.load.map((l) => l.toFixed(2)).join(' · ')}`;
     const memPct = (st.memory.used / st.memory.total) * 100;
     memRing.set(memPct);
     memBig.textContent = fmtBytes(st.memory.used);
-    memSub.textContent = `of ${fmtBytes(st.memory.total)} · ${fmtBytes(st.memory.available)} available`;
+    memSub.textContent = `used of ${fmtBytes(st.memory.total)}`;
+    memSub.title = `${fmtBytes(st.memory.available)} available`;
     if (st.disk) {
       const used = (st.disk.used / st.disk.total) * 100;
-      diskBig.textContent = `${fmtBytes(st.disk.free)} free`;
-      diskSub.textContent = `${Math.round(used)}% used · ${fmtBytes(st.disk.used)} of ${fmtBytes(st.disk.total)}`;
-      diskBar.className = `bar-meter ${level(used)}`;
-      diskBar.firstChild.style.width = used.toFixed(1) + '%';
+      diskRing.set(used);
+      diskBig.textContent = fmtBytes(st.disk.free);
+      diskSub.textContent = `free of ${fmtBytes(st.disk.total)}`;
+      diskSub.title = `${fmtBytes(st.disk.used)} used · free space updates in real time`;
+    }
+    // The processor (else the hottest part) leads; the ring fills towards that part's safe limit.
+    const temps = st.temperatures || [];
+    const main = temps.find((t) => t.kind === 'cpu') || temps.reduce((a, b) => (!a || b.celsius > a.celsius ? b : a), null);
+    if (main) {
+      tempRing.set((main.celsius / main.limit) * 100, `${Math.round(main.celsius)}°`, main.level);
+      tempBig.textContent = main.label;
+      // One more part fits on the line (the next hottest); every reading is in the tooltip.
+      const next = temps.filter((t) => t !== main).sort((a, b) => b.celsius - a.celsius)[0];
+      tempSub.textContent = next ? `${next.label} ${Math.round(next.celsius)} °C` : `Safe up to ${Math.round(main.limit)} °C`;
+      tempCard.title = temps.map((t) => `${t.label}${t.detail ? ` (${t.detail})` : ''}: ${fmtTemp(t.celsius)}`).join('\n');
+    } else {
+      tempRing.set(0, '—', '');
+      tempBig.textContent = 'No sensors';
+      tempSub.textContent = o.dev ? 'Not in dev mode' : 'Normal on a VM';
+      tempSub.title = o.dev ? 'Temperatures are read on the Linux server, not in dev mode.' : 'This computer reports no temperatures. That is normal on a virtual machine or a cloud server.';
+      tempCard.title = '';
     }
     clear(sysKv).append(
       ...[
@@ -323,7 +359,6 @@ async function overviewView() {
         ['Address', o.lanIp],
         ['Running for', fmtDur(st.uptime)],
         ['Processor', st.cpu.model],
-        st.temperature != null && ['Temperature', `${Math.round(st.temperature)} °C`],
         st.network && ['Network', `↓ ${fmtBytes(st.network.rx)}/s   ↑ ${fmtBytes(st.network.tx)}/s`],
         ['System', st.platform],
       ]
@@ -352,6 +387,8 @@ async function overviewView() {
     paint(live.stats, live.sites);
     cpuSpark.push({ t: live.stats.time, v: live.stats.cpu.percent });
     memSpark.push({ t: live.stats.time, v: (live.stats.memory.used / live.stats.memory.total) * 100 });
+    if (live.stats.disk) diskSpark.push({ t: live.stats.time, v: (live.stats.disk.used / live.stats.disk.total) * 100 });
+    if (live.stats.temperature != null) tempSpark.push({ t: live.stats.time, v: live.stats.temperature });
   };
 
   const checks = [
@@ -367,10 +404,15 @@ async function overviewView() {
     o.dev && notice('warn', h('b', {}, 'Dev mode. '), 'Running safely on this computer: websites run as normal processes and network changes are simulated.'),
     h(
       'div',
-      { class: 'grid cols-3', style: 'margin-top:16px' },
-      h('div', { class: 'card' }, h('div', { class: 'gauge-card' }, cpuRing.el, h('div', { class: 'grow' }, h('div', { class: 'metric-label' }, 'Processor'), h('div', { class: 'metric-big' }, 'CPU'), cpuSub)), cpuSpark.el),
-      h('div', { class: 'card' }, h('div', { class: 'gauge-card' }, memRing.el, h('div', { class: 'grow' }, h('div', { class: 'metric-label' }, 'Memory'), memBig, memSub)), memSpark.el),
-      h('div', { class: 'card' }, h('div', { class: 'metric-label' }, 'Storage'), h('div', { style: 'margin-top:14px' }, diskBig), diskSub, diskBar, h('div', { class: 'small muted', style: 'margin-top:14px' }, 'Free space updates in real time.')),
+      { class: 'metrics-wrap', style: 'margin-top:16px' },
+      h(
+        'div',
+        { class: 'grid metrics' },
+        metricCard(cpuRing, 'Processor', h('div', { class: 'metric-big' }, 'CPU'), cpuSub, cpuSpark),
+        metricCard(memRing, 'Memory', memBig, memSub, memSpark),
+        metricCard(diskRing, 'Storage', diskBig, diskSub, diskSpark),
+        metricCard(tempRing, 'Temperature', tempBig, tempSub, tempSpark, tempCard),
+      ),
     ),
     h(
       'div',
@@ -390,131 +432,6 @@ async function overviewView() {
         h('div', { class: 'card', style: 'margin-top:16px' }, h('h3', { style: 'margin-bottom:12px' }, 'This computer'), sysKv),
       ),
     ),
-    hardwareSection(),
-  );
-}
-
-/* ---- hardware: temperatures and disk health (S.M.A.R.T.) */
-
-const DISK_KIND = { hdd: 'Hard drive', ssd: 'SSD', nvme: 'NVMe SSD', disk: 'Disk' };
-const HEALTH_PILL = { good: ['good', 'Healthy'], warn: ['warn', 'Check'], bad: ['bad', 'Failing'], unknown: ['', 'Unknown'] };
-
-function fmtHours(hours) {
-  if (hours < 48) return `${fmtNum(hours)} hours`;
-  const days = hours / 24;
-  if (days < 365) return `${Math.round(days)} days`;
-  return `${(days / 365).toFixed(1)} years`;
-}
-
-const fmtTemp = (c) => `${Math.round(c)} °C`;
-
-function tempRow(t) {
-  const pct = Math.max(2, Math.min(100, (t.celsius / t.limit) * 100));
-  return h(
-    'div',
-    { class: 'item meter-row' },
-    h(
-      'div',
-      { class: 'row between' },
-      h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label ellipsis' }, t.label), t.detail && h('div', { class: 'small muted ellipsis' }, t.detail)),
-      h('span', { class: `pill ${t.level}` }, fmtTemp(t.celsius)),
-    ),
-    h('div', { class: `bar-meter thin ${t.level}`, title: `Safe up to about ${Math.round(t.limit)} °C` }, h('i', { style: `width:${pct.toFixed(1)}%` })),
-  );
-}
-
-function diskRow(d) {
-  const [kind, text] = HEALTH_PILL[d.health] || HEALTH_PILL.unknown;
-  const facts = [
-    DISK_KIND[d.kind] || 'Disk',
-    d.size && fmtBytes(d.size),
-    d.temperature != null && fmtTemp(d.temperature),
-    d.powerOnHours != null && `on for ${fmtHours(d.powerOnHours)}`,
-    d.lifeUsedPercent != null && `${Math.round(d.lifeUsedPercent)}% of lifetime used`,
-  ].filter(Boolean);
-  return h(
-    'div',
-    { class: 'item', style: 'align-items:flex-start' },
-    h(
-      'div',
-      { class: 'grow', style: 'min-width:0' },
-      h('div', { class: 'label ellipsis' }, d.name),
-      h('div', { class: 'small muted' }, [d.device, ...facts].filter(Boolean).join(' · ')),
-      h('div', { class: 'small', style: 'margin-top:4px' }, d.verdict),
-      d.problems?.length > 0 && h('ul', { class: 'small muted', style: 'margin:4px 0 0;padding-left:18px' }, d.problems.map((p) => h('li', {}, p))),
-    ),
-    h('span', { class: `pill ${kind}` }, h('span', { class: 'dot' }), d.asleep ? 'Asleep' : text),
-  );
-}
-
-function hardwareSection() {
-  const temps = h('div', { class: 'list flat' }, h('div', { class: 'item' }, h('span', { class: 'spin' })));
-  const disks = h('div', { class: 'list flat' }, h('div', { class: 'item' }, h('span', { class: 'spin' })));
-  const checked = h('span', { class: 'metric-sub' });
-  let refreshBtn;
-  let timer = null;
-
-  const paint = (hw) => {
-    clear(temps).append(...(hw.temperatures.length ? hw.temperatures.map(tempRow) : [h('div', { class: 'item small muted' }, hw.temperaturesMessage || 'Disk temperatures are shown with each disk.')]));
-
-    const s = hw.smart;
-    const rows = hw.disks.map(diskRow);
-    if (s.state !== 'ok') {
-      let install;
-      rows.unshift(
-        h(
-          'div',
-          { class: 'item', style: 'flex-wrap:wrap' },
-          h('div', { class: 'grow small muted', style: 'min-width:200px' }, s.message),
-          s.canInstall &&
-            (install = h(
-              'button',
-              {
-                class: 'btn sm primary',
-                onclick: async () => {
-                  const ok = await confirmSheet({ title: 'Install the disk health tool?', text: 'AutoNode installs the smartmontools package with the system’s package manager. It only reads the disks and takes about a minute.', ok: 'Install' });
-                  if (!ok) return;
-                  await busy(install, async () => {
-                    await api('POST', '/api/hardware/install');
-                    toast('Installed ✓');
-                    await load(true);
-                  });
-                },
-              },
-              icon('download'),
-              'Install',
-            )),
-        ),
-      );
-    }
-    clear(disks).append(...rows);
-    checked.textContent = s.checkedAt ? `Disks checked ${fmtAgo(new Date(s.checkedAt).toISOString())}` : '';
-  };
-
-  const load = async (fresh) => {
-    try {
-      paint(await api('GET', `/api/hardware${fresh ? '?fresh=1' : ''}`));
-    } catch (err) {
-      clear(temps).append(h('div', { class: 'item small muted' }, err.message));
-      clear(disks);
-    }
-  };
-
-  load(false);
-  // Temperatures change by the second; disk health is cached on the server for a few minutes.
-  timer = setInterval(() => !document.hidden && load(false), 10_000);
-  state.cleanup.push(() => clearInterval(timer));
-
-  return h(
-    'div',
-    { class: 'section' },
-    h(
-      'div',
-      { class: 'section-head' },
-      h('h2', {}, 'Hardware'),
-      h('div', { class: 'row', style: 'gap:12px' }, checked, (refreshBtn = h('button', { class: 'btn sm ghost', onclick: () => busy(refreshBtn, () => load(true)) }, 'Check Disks Now'))),
-    ),
-    h('div', { class: 'grid cols-2' }, h('div', { class: 'card' }, h('h3', {}, 'Temperatures'), temps), h('div', { class: 'card' }, h('h3', {}, 'Disk health'), disks)),
   );
 }
 
