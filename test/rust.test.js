@@ -118,14 +118,37 @@ test('a Rust site with no program to start explains how to fix it instead of sta
   await assert.rejects(sites.startSite(site.name), /Start command/);
 });
 
-test('Rust sites get the autonode user’s ~/.cargo/bin on PATH; Node sites are unchanged', async () => {
+test('every site gets the autonode user’s ~/.cargo/bin on PATH, after node', async () => {
   const r = await siteWith({ 'Cargo.toml': '[package]\nname = "p"\n' });
-  const nodeSite = await siteWith({ 'package.json': '{}' });
-  assert.ok(runner.siteEnv(r).PATH.includes(`${rust.cargoBinDir()}:`));
-  assert.ok(!runner.siteEnv(nodeSite).PATH.includes('.cargo'));
+  // A Node.js project with a Rust server next to it (package.json + Cargo.toml) needs cargo too.
+  const mixed = await siteWith({ 'package.json': '{}', 'Cargo.toml': '[package]\nname = "p"\n' });
+  for (const s of [r, mixed]) {
+    const p = runner.siteEnv(s).PATH;
+    assert.ok(p.includes(`:${rust.cargoBinDir()}:`), `after node’s own folder: ${p}`);
+    assert.ok(p.startsWith(path.dirname(process.execPath)), p);
+  }
   assert.equal(rust.cargoBinDir(), path.join(config.paths.homeDir, '.cargo', 'bin'));
   assert.match(rust.missingCargoMessage(), /rustup/);
   assert.match(rust.missingCargoMessage(), /sudo -u autonode/);
+});
+
+test('custom commands that call cargo make a site need Rust, and starting without cargo explains what to do', async () => {
+  for (const c of ['cargo run --release', 'cd server && cargo run', 'npm run build; cargo build --release', '(cargo run)']) assert.ok(rust.usesCargo(c), c);
+  for (const c of ['npm start', './target/release/cargo-app', 'node cargo.js', 'cargoes', '']) assert.ok(!rust.usesCargo(c), c);
+
+  const mixed = await siteWith({ 'package.json': '{}', 'Cargo.toml': '[package]\nname = "farm"\n' });
+  assert.equal(sites.siteKind(mixed), 'node', 'package.json still wins detection');
+  assert.equal(sites.needsRust(mixed), false);
+  await sites.updateSite(mixed.name, { startCommand: 'cargo run --release' });
+  assert.equal(sites.needsRust(sites.getSite(mixed.name)), true);
+
+  const savedPath = process.env.PATH; // dev mode looks for cargo on PATH: hide it
+  process.env.PATH = path.join(tmp, 'empty-bin');
+  try {
+    await assert.rejects(sites.startSite(mixed.name), /uses cargo, but Rust isn't installed.*Install & Rebuild/);
+  } finally {
+    process.env.PATH = savedPath;
+  }
 });
 
 test('automatic Rust install: the right rustup for the processor, the right packages for the system', async () => {

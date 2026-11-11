@@ -72,6 +72,12 @@ export async function fixOwnership(target) {
  */
 export const siteKind = (site) => rust.kindOf(siteDir(site.name));
 
+/**
+ * Whether deploys must make sure Rust is installed: a Rust site, or any site whose own
+ * commands call cargo (a Node.js project with a Rust server next to its package.json, say).
+ */
+export const needsRust = (site) => siteKind(site) === 'rust' || [site.startCommand, site.installCommand, site.buildCommand].some(rust.usesCargo);
+
 /** Figure out how to start a site when the user didn't specify. '' means: couldn't tell. */
 export function detectStartCommand(site) {
   if (site.startCommand?.trim()) return site.startCommand.trim();
@@ -229,6 +235,9 @@ export async function startSite(name) {
   await ensureDataDir(name);
   const command = detectStartCommand(site);
   if (!command) throw new HttpError(400, "AutoNode couldn't tell from Cargo.toml which program to start. Add a [package] name, or set the Start command in Settings (for example ./target/release/my-app).");
+  // Otherwise systemd would restart "cargo: not found" every few seconds.
+  if (rust.usesCargo(command) && !rust.findCargo())
+    throw new HttpError(400, `The start command uses cargo, but Rust isn't installed for the ${config.SITE_USER} user yet. Press Install & Rebuild on the Overview tab: AutoNode installs Rust, builds the website and starts it.`);
   await runner().start(site, command);
   config.update((c) => {
     c.sites[name].enabled = true;

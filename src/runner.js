@@ -38,10 +38,11 @@ export async function siteUser() {
 }
 
 export function siteEnv(site) {
-  // Rust sites also get the autonode user's ~/.cargo/bin (where rustup installs cargo).
-  const extra = rust.kindOf(path.join(config.paths.sitesDir, site.name)) === 'rust' ? `${rust.cargoBinDir()}:` : '';
   return {
-    PATH: `${nodeBinDir}:${extra}/usr/local/bin:/usr/bin:/bin`,
+    // Every site gets the autonode user's ~/.cargo/bin (where rustup installs cargo), not just the
+    // ones detected as Rust: a project with both package.json and Cargo.toml, or custom commands
+    // that call cargo, must find it too. It is the site user's own folder, so it grants nothing new.
+    PATH: `${nodeBinDir}:${rust.cargoBinDir()}:/usr/local/bin:/usr/bin:/bin`,
     HOME: config.paths.homeDir,
     NODE_ENV: 'production',
     PORT: String(site.port),

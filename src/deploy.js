@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import * as config from './config.js';
-import { getSite, siteDir, siteKind, runInSite, restartSite, newSecret, fixOwnership } from './sites.js';
+import { getSite, siteDir, siteKind, needsRust, runInSite, restartSite, newSecret, fixOwnership } from './sites.js';
 import * as rust from './rust.js';
 import { siteUser } from './runner.js';
 import { matcher, lockedFiles, addLocks } from './locks.js';
@@ -417,8 +417,8 @@ export function deploy(name, { reason = 'manual', pull = true, resolve = null, r
           if (c.sites[name]?.git) c.sites[name].git.blocked = null;
         });
       }
-      // Rust sites: install the build tools and Rust itself the first time (quick once they are there).
-      if (siteKind(site) === 'rust') {
+      // Rust sites (or commands that call cargo): install the build tools and Rust itself the first time (quick once they are there).
+      if (needsRust(getSite(name))) {
         await rust.ensureToolchain({ say, ids: await siteUser() });
       }
       const install = pickInstall(site);

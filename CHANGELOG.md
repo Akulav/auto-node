@@ -2,6 +2,12 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.7.1] - 2026-11-11
+
+### Fixed
+
+- **"cargo: not found" with a custom `cargo …` command.** Rust was only put on a website's PATH (and only installed) when the website was detected as Rust, i.e. a `Cargo.toml` without a `package.json`. A project with both, or one started with a command like `cargo run --release`, kept restarting with "cargo: not found". Every website can now find cargo, Install & Rebuild sets Rust up for any website whose commands call cargo, and starting one before Rust is installed says what to do instead of restarting over and over.
+
 ## [1.7.0] - 2026-11-11
 
 ### Added

@@ -95,6 +95,9 @@ export function startCommand(dir) {
   return bin ? `./target/release/${bin}` : '';
 }
 
+/** True when a shell command runs cargo (e.g. a custom "cargo run --release" start command). */
+export const usesCargo = (command) => /(^|[\s;&|()])cargo(\s|$)/.test(String(command || ''));
+
 export function buildCommand(dir) {
   return fs.existsSync(path.join(dir, 'Cargo.lock')) ? 'cargo build --release --locked' : 'cargo build --release';
 }
