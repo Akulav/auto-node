@@ -6,6 +6,7 @@ const TABS = [
   ['server', 'Web Server', serverTab],
   ['backups', 'Backups', backupsTab],
   ['transfer', 'Export & Import', transferTab],
+  ['storage', 'Storage', storageTab],
   ['security', 'Security', securityTab],
   ['remote', 'Remote Access', remoteTab],
 ];
@@ -301,6 +302,56 @@ function transferTab() {
     importInput,
     h('p', { class: 'small muted' }, 'Backups saved on this computer can be restored from the ', h('a', { href: '#/settings/backups' }, 'Backups'), ' tab.'),
   );
+}
+
+/* ---------------------------------------------------------------- storage */
+
+const LEFTOVERS = {
+  backups: ['Unfinished backups', 'Backups that were interrupted before they were complete.'],
+  snapshots: ['Unfinished snapshots', 'Snapshots that were interrupted before they were complete.'],
+  orphans: ['Unusable snapshots', "Snapshot files with a missing half. They can't be restored and never show up in a website's list."],
+  uploads: ['Abandoned uploads', 'Uploads that stopped more than a day ago and were never finished.'],
+  temp: ['Temporary files', "Working copies left by backups and restores that didn't finish."],
+};
+
+async function storageTab() {
+  const box = h('div', { class: 'stack', style: 'gap:16px' });
+  const amount = (text) => h('div', { class: 'value' }, text);
+  const load = async () => {
+    const r = await api('GET', '/api/cleanup');
+    const cleanUp = async (e) => {
+      const btn = e.currentTarget;
+      if (!(await confirmSheet({ title: 'Remove leftover files?', text: `${r.count} item${r.count === 1 ? '' : 's'} (${fmtBytes(r.size)}) will be deleted for good. Your websites, their data, and your finished backups and snapshots are not touched.`, ok: 'Clean Up', danger: true }))) return;
+      await busy(btn, async () => {
+        const done = await api('POST', '/api/cleanup');
+        toast(done.failed.length ? `Removed ${done.removed}, but ${done.failed.length} could not be deleted:\n${done.failed.join('\n')}` : `Freed ${fmtBytes(done.freed)} ✓`, done.failed.length ? 'bad' : '');
+        await load();
+      });
+    };
+    append(clear(box), [
+      h(
+        'div',
+        {},
+        h('div', { class: 'section-head' }, h('h3', {}, 'Leftover files'), h('button', { class: 'btn sm primary', disabled: !r.count, onclick: cleanUp }, icon('trash'), r.count ? `Clean Up ${fmtBytes(r.size)}` : 'Clean Up')),
+        h('div', { class: 'list' }, r.groups.length ? r.groups.map((g) => row(LEFTOVERS[g.id]?.[0] || g.id, LEFTOVERS[g.id]?.[1], amount(`${g.count} · ${fmtBytes(g.size)}`))) : h('div', { class: 'item muted small' }, 'Nothing to clean up.')),
+        h('p', { class: 'small muted', style: 'margin-top:8px' }, 'These are left behind when a backup, snapshot, restore or upload is interrupted, for example by a restart. Anything from the last hour is left alone in case it is still being used.'),
+      ),
+      h(
+        'div',
+        {},
+        h('div', { class: 'section-head' }, h('h3', {}, 'Space used by copies')),
+        h(
+          'div',
+          { class: 'list' },
+          row('Snapshots', ['Copies of each website for rollback. Choose how many to keep in ', h('a', { href: '#/settings/server' }, 'Web Server'), '.'], amount(fmtBytes(r.usage.snapshots))),
+          row('Saved backups', ['Scheduled backups are removed by age; ones you made stay until you delete them in ', h('a', { href: '#/settings/backups' }, 'Backups'), '.'], amount(fmtBytes(r.usage.backups))),
+          row('Rescued files', 'Copies of files an update kept or replaced. The last 20 per website are kept.', amount(fmtBytes(r.usage.rescued))),
+        ),
+      ),
+    ]);
+  };
+  await load().catch((err) => append(clear(box), [notice('bad', err.message)]));
+  return box;
 }
 
 /* --------------------------------------------------------------- security */

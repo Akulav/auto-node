@@ -13,6 +13,8 @@ import * as uploads from './uploads.js';
 import * as selfupdate from './selfupdate.js';
 import * as dashtls from './dashtls.js';
 import * as cf from './cloudflare.js';
+import * as cleanup from './cleanup.js';
+import * as activity from './activity.js';
 import { runnerKind } from './runner.js';
 import { HttpError, lanAddress } from './util.js';
 
@@ -178,6 +180,7 @@ export function register(on, { q }) {
     return stageBackup(file);
   });
   on('POST', '/api/backup/restore', async (req, res, p, body) => {
+    dropExpiredImports();
     const pending = pendingImports.get(body.token);
     if (!pending) throw new HttpError(410, 'That upload expired. Please choose the file again.');
     pendingImports.delete(body.token);
@@ -200,6 +203,16 @@ export function register(on, { q }) {
     return undefined;
   });
   on('DELETE', '/api/backups/:file', async (req, res, p) => (fs.rmSync(backup.storedFile(p.file)), { ok: true }));
+  // Storage: leftovers from interrupted backups, snapshots, restores and uploads
+  on('GET', '/api/cleanup', async () => cleanup.scan());
+  on('POST', '/api/cleanup', async () => {
+    if (backup.isBackupRunning()) throw new HttpError(409, 'A backup is running. Wait for it to finish, then try again.');
+    dropExpiredImports();
+    const r = cleanup.clean();
+    if (r.removed) activity.record({ action: 'Cleaned up leftover files', detail: `${r.removed} item${r.removed === 1 ? '' : 's'}, ${Math.round(r.freed / 1048576)} MB freed`, by: 'you' });
+    return r;
+  });
+
   on('POST', '/api/backups/:file/prepare', async (req, res, p) => {
     // Restore works on a copy: restore() deletes the file it was given.
     const copy = path.join(config.paths.tmpDir, `stored-${crypto.randomUUID()}.tar.gz`);

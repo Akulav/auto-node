@@ -166,6 +166,8 @@ File routes accept `?area=data` to work in the site's DATA_DIR instead of its co
 | POST | `/api/backups/run` | | Back up now |
 | GET / DELETE | `/api/backups/:file` | | Download / delete one |
 | POST | `/api/backups/:file/prepare` | | Stage for `POST /api/backup/restore` → `{ token, summary }` |
+| GET | `/api/cleanup` | | Leftovers from interrupted backups, snapshots, restores and uploads → `{ groups: [{ id, count, size }], count, size, usage }` |
+| POST | `/api/cleanup` | | Remove them → `{ removed, freed, failed }` |
 | GET | `/api/activity?limit=&site=&before=` | | Newest first, last 30 days → `{ entries, keepDays }` |
 | POST | `/api/activity/prune` | `{ before: ISO date }` | Remove entries before that date (not in the future) → `{ removed }`. Entries older than 30 days are removed automatically |
 

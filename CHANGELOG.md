@@ -2,7 +2,11 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.5.0] - 2026-11-11
+
+### Added
+
+- **Storage tab.** Settings → Storage lists files left behind when a backup, snapshot, restore or upload is interrupted (for example by a restart) and removes them with Clean Up. Anything from the last hour is left alone. It also shows how much space snapshots, saved backups and rescued files use.
 
 ### Fixed
 
