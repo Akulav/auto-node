@@ -2,6 +2,12 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Websites can write to their data folder again.** A data folder that was created for a website that existed before 1.3, or by opening Files → Data folder before the website's first start, belonged to root, so the website failed with "EACCES: permission denied". AutoNode now hands the folder to the website when it starts, and repairs existing ones on startup.
+
 ## [1.4.1] - 2026-11-10
 
 ### Added

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
-import { siteDir, siteDataDir, fixOwnership, getSite } from './sites.js';
+import { siteDir, siteDataDir, ensureDataDir, fixOwnership, getSite } from './sites.js';
 import { HttpError, run, which, isLinux } from './util.js';
 
 const MAX_EDIT = 2 * 1024 * 1024;
@@ -19,7 +19,8 @@ function rootOf(scoped) {
   const [name, area] = String(scoped).split('@');
   getSite(name);
   const dir = area === 'data' ? siteDataDir(name) : siteDir(name);
-  fs.mkdirSync(dir, { recursive: true });
+  // We run as root: a folder created here must be handed to the site user, or the website can't write to it.
+  if (fs.mkdirSync(dir, { recursive: true })) (area === 'data' ? ensureDataDir(name) : fixOwnership(dir)).catch(() => {});
   return dir;
 }
 

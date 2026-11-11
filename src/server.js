@@ -456,6 +456,8 @@ export async function serve() {
   certs.reload();
   stats.startSampling();
   await proxy.start(deploy.handleHook);
+  // Every website needs a data folder it can write to (repairs ones left owned by root).
+  for (const s of sites.allSites()) await sites.ensureDataDir(s.name).catch((err) => console.error(`[sites] ${s.name}: could not prepare the data folder: ${err.message}`));
   await restoreChildren(sites.allSites(), sites.detectStartCommand);
   deploy.startAutoUpdates();
   cf.startDdns();

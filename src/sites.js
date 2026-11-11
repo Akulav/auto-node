@@ -9,13 +9,17 @@ import { run, HttpError, SITE_NAME_RE, HOSTNAME_RE, ENV_KEY_RE, normalizeHostnam
 export const siteDir = (name) => path.join(config.paths.sitesDir, name);
 export const siteDataDir = (name) => path.join(config.paths.siteDataRoot, name);
 
-/** Create the website's DATA_DIR (owned by the site user, private to it). */
+/**
+ * Create the website's DATA_DIR (owned by the site user, private to it).
+ * Also repairs a folder that exists but belongs to root (made by an older version,
+ * or by hand), which the website could read but not write to.
+ */
 export async function ensureDataDir(name) {
   const dir = siteDataDir(name);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true, mode: 0o750 });
-    await fixOwnership(dir);
-  }
+  const created = !fs.existsSync(dir);
+  if (created) fs.mkdirSync(dir, { recursive: true, mode: 0o750 });
+  const ids = await siteUser();
+  if (created || (ids && fs.statSync(dir).uid !== ids.uid)) await fixOwnership(dir);
   return dir;
 }
 
