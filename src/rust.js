@@ -232,11 +232,15 @@ async function installRustup(say, ids) {
   const expected = sum.toString('utf8').trim().split(/\s+/)[0].toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(expected) || crypto.createHash('sha256').update(bin).digest('hex') !== expected) throw new Error('the downloaded installer was damaged on the way (checksum mismatch)');
   // The home folder belongs to the site user: a random name opened with O_EXCL never follows a planted link.
-  const file = path.join(config.paths.homeDir, `.rustup-init-${crypto.randomBytes(8).toString('hex')}`);
+  // The name must start with "rustup-init": rustup decides from its own file name whether it is the installer.
+  const file = path.join(config.paths.homeDir, `rustup-init-${crypto.randomBytes(8).toString('hex')}`);
   try {
     fs.writeFileSync(file, bin, { flag: 'wx', mode: 0o755 });
     const r = await run(file, ['-y', '--profile', 'minimal', '--default-toolchain', 'stable', '--no-modify-path'], { cwd: config.paths.homeDir, env: toolEnv(), uid: ids?.uid, gid: ids?.gid, onData: say, quiet: true, timeout: 20 * 60_000 });
-    if (r.code !== 0) throw new Error(`the Rust installer stopped with exit code ${r.code}`);
+    if (r.code !== 0) {
+      const why = (r.stderr || r.stdout).trim().split('\n').pop()?.trim().slice(0, 300);
+      throw new Error(`the Rust installer stopped with exit code ${r.code}${why ? ` (${why})` : ''}`);
+    }
   } finally {
     fs.rmSync(file, { force: true });
   }
