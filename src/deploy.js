@@ -417,6 +417,10 @@ export function deploy(name, { reason = 'manual', pull = true, resolve = null, r
           if (c.sites[name]?.git) c.sites[name].git.blocked = null;
         });
       }
+      // Rust sites: install the build tools and Rust itself the first time (quick once they are there).
+      if (siteKind(site) === 'rust') {
+        await rust.ensureToolchain({ say, ids: await siteUser() });
+      }
       const install = pickInstall(site);
       if (install) {
         say(`\n[${stamp()}] Installing packages…\n`);
@@ -424,7 +428,6 @@ export function deploy(name, { reason = 'manual', pull = true, resolve = null, r
       }
       const build = pickBuild(site);
       const cargoBuild = !site.buildCommand && siteKind(site) === 'rust';
-      if (cargoBuild && !rust.findCargo()) throw new Error(rust.missingCargoMessage());
       if (build) {
         say(`\n[${stamp()}] ${cargoBuild ? 'Building with cargo (the first build can take several minutes)…' : 'Building…'}\n`);
         await runInSite(name, build, say);

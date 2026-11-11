@@ -49,8 +49,7 @@ Made with ♥ by **Akulav**
 - A Linux machine with systemd (Ubuntu, Debian, Raspberry Pi OS, Fedora, Arch…)
 - Node.js 18.17 or newer (the installer adds Node 22 if missing)
 - `git`, `unzip`, `openssl` (installed automatically)
-- For Rust websites only: Rust for the `autonode` user. Install it once with
-  `sudo -u autonode env HOME=/var/lib/autonode/home sh -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"`
+- For Rust websites: nothing to do. The first deploy installs Rust (rustup, for the `autonode` user) and the build tools it needs
   (a system-wide `cargo` in `/usr/bin` works too)
 - Optional: a domain on [Cloudflare](https://dash.cloudflare.com) — e.g. one bought through Cloudflare Registrar
 

@@ -128,6 +128,31 @@ test('Rust sites get the autonode user’s ~/.cargo/bin on PATH; Node sites are 
   assert.match(rust.missingCargoMessage(), /sudo -u autonode/);
 });
 
+test('automatic Rust install: the right rustup for the processor, the right packages for the system', async () => {
+  assert.equal(rust.rustupTriple('x64', { musl: false }), 'x86_64-unknown-linux-gnu');
+  assert.equal(rust.rustupTriple('arm64', { musl: false }), 'aarch64-unknown-linux-gnu');
+  assert.equal(rust.rustupTriple('arm64', { musl: true }), 'aarch64-unknown-linux-musl');
+  assert.equal(rust.rustupTriple('arm', { armVersion: '7', musl: false }), 'armv7-unknown-linux-gnueabihf');
+  assert.equal(rust.rustupTriple('arm', { armVersion: '6', musl: false }), 'arm-unknown-linux-gnueabihf');
+  assert.equal(rust.rustupTriple('mips', { musl: false }), null);
+
+  const apt = rust.systemPackages('apt-get');
+  for (const p of ['build-essential', 'pkg-config', 'libssl-dev']) assert.ok(apt.args.includes(p), p);
+  assert.ok(apt.update.includes('update'));
+  assert.ok(rust.systemPackages('dnf').args.includes('openssl-devel'));
+  assert.ok(rust.systemPackages('pacman').args.includes('base-devel'));
+  assert.equal(rust.systemPackages(undefined), null);
+
+  // Dev mode never installs anything on the developer's computer.
+  const savedPath = process.env.PATH;
+  process.env.PATH = path.join(tmp, 'empty-bin');
+  try {
+    await assert.rejects(rust.ensureToolchain(), /Rust isn't installed/);
+  } finally {
+    process.env.PATH = savedPath;
+  }
+});
+
 test('a deploy without cargo fails with a plain sentence about installing Rust', async () => {
   const site = await siteWith({ 'Cargo.toml': '[package]\nname = "p"\n' });
   const savedPath = process.env.PATH; // dev mode looks for cargo on PATH: hide it
