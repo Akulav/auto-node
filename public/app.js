@@ -390,6 +390,131 @@ async function overviewView() {
         h('div', { class: 'card', style: 'margin-top:16px' }, h('h3', { style: 'margin-bottom:12px' }, 'This computer'), sysKv),
       ),
     ),
+    hardwareSection(),
+  );
+}
+
+/* ---- hardware: temperatures and disk health (S.M.A.R.T.) */
+
+const DISK_KIND = { hdd: 'Hard drive', ssd: 'SSD', nvme: 'NVMe SSD', disk: 'Disk' };
+const HEALTH_PILL = { good: ['good', 'Healthy'], warn: ['warn', 'Check'], bad: ['bad', 'Failing'], unknown: ['', 'Unknown'] };
+
+function fmtHours(hours) {
+  if (hours < 48) return `${fmtNum(hours)} hours`;
+  const days = hours / 24;
+  if (days < 365) return `${Math.round(days)} days`;
+  return `${(days / 365).toFixed(1)} years`;
+}
+
+const fmtTemp = (c) => `${Math.round(c)} °C`;
+
+function tempRow(t) {
+  const pct = Math.max(2, Math.min(100, (t.celsius / t.limit) * 100));
+  return h(
+    'div',
+    { class: 'item meter-row' },
+    h(
+      'div',
+      { class: 'row between' },
+      h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label ellipsis' }, t.label), t.detail && h('div', { class: 'small muted ellipsis' }, t.detail)),
+      h('span', { class: `pill ${t.level}` }, fmtTemp(t.celsius)),
+    ),
+    h('div', { class: `bar-meter thin ${t.level}`, title: `Safe up to about ${Math.round(t.limit)} °C` }, h('i', { style: `width:${pct.toFixed(1)}%` })),
+  );
+}
+
+function diskRow(d) {
+  const [kind, text] = HEALTH_PILL[d.health] || HEALTH_PILL.unknown;
+  const facts = [
+    DISK_KIND[d.kind] || 'Disk',
+    d.size && fmtBytes(d.size),
+    d.temperature != null && fmtTemp(d.temperature),
+    d.powerOnHours != null && `on for ${fmtHours(d.powerOnHours)}`,
+    d.lifeUsedPercent != null && `${Math.round(d.lifeUsedPercent)}% of lifetime used`,
+  ].filter(Boolean);
+  return h(
+    'div',
+    { class: 'item', style: 'align-items:flex-start' },
+    h(
+      'div',
+      { class: 'grow', style: 'min-width:0' },
+      h('div', { class: 'label ellipsis' }, d.name),
+      h('div', { class: 'small muted' }, [d.device, ...facts].filter(Boolean).join(' · ')),
+      h('div', { class: 'small', style: 'margin-top:4px' }, d.verdict),
+      d.problems?.length > 0 && h('ul', { class: 'small muted', style: 'margin:4px 0 0;padding-left:18px' }, d.problems.map((p) => h('li', {}, p))),
+    ),
+    h('span', { class: `pill ${kind}` }, h('span', { class: 'dot' }), d.asleep ? 'Asleep' : text),
+  );
+}
+
+function hardwareSection() {
+  const temps = h('div', { class: 'list flat' }, h('div', { class: 'item' }, h('span', { class: 'spin' })));
+  const disks = h('div', { class: 'list flat' }, h('div', { class: 'item' }, h('span', { class: 'spin' })));
+  const checked = h('span', { class: 'metric-sub' });
+  let refreshBtn;
+  let timer = null;
+
+  const paint = (hw) => {
+    clear(temps).append(...(hw.temperatures.length ? hw.temperatures.map(tempRow) : [h('div', { class: 'item small muted' }, hw.temperaturesMessage || 'Disk temperatures are shown with each disk.')]));
+
+    const s = hw.smart;
+    const rows = hw.disks.map(diskRow);
+    if (s.state !== 'ok') {
+      let install;
+      rows.unshift(
+        h(
+          'div',
+          { class: 'item', style: 'flex-wrap:wrap' },
+          h('div', { class: 'grow small muted', style: 'min-width:200px' }, s.message),
+          s.canInstall &&
+            (install = h(
+              'button',
+              {
+                class: 'btn sm primary',
+                onclick: async () => {
+                  const ok = await confirmSheet({ title: 'Install the disk health tool?', text: 'AutoNode installs the smartmontools package with the system’s package manager. It only reads the disks and takes about a minute.', ok: 'Install' });
+                  if (!ok) return;
+                  await busy(install, async () => {
+                    await api('POST', '/api/hardware/install');
+                    toast('Installed ✓');
+                    await load(true);
+                  });
+                },
+              },
+              icon('download'),
+              'Install',
+            )),
+        ),
+      );
+    }
+    clear(disks).append(...rows);
+    checked.textContent = s.checkedAt ? `Disks checked ${fmtAgo(new Date(s.checkedAt).toISOString())}` : '';
+  };
+
+  const load = async (fresh) => {
+    try {
+      paint(await api('GET', `/api/hardware${fresh ? '?fresh=1' : ''}`));
+    } catch (err) {
+      clear(temps).append(h('div', { class: 'item small muted' }, err.message));
+      clear(disks);
+    }
+  };
+
+  load(false);
+  // Temperatures change by the second; disk health is cached on the server for a few minutes.
+  timer = setInterval(() => !document.hidden && load(false), 10_000);
+  state.cleanup.push(() => clearInterval(timer));
+
+  return h(
+    'div',
+    { class: 'section' },
+    h(
+      'div',
+      { class: 'section-head' },
+      h('h2', {}, 'Hardware'),
+      h('div', { class: 'row', style: 'gap:12px' }, checked, (refreshBtn = h('button', { class: 'btn sm ghost', onclick: () => busy(refreshBtn, () => load(true)) }, 'Check Disks Now'))),
+    ),
+    h('div', { class: 'grid cols-2' }, h('div', { class: 'card' }, h('h3', {}, 'Temperatures'), temps), h('div', { class: 'card' }, h('h3', {}, 'Disk health'), disks)),
   );
 }
 

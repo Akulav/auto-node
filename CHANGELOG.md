@@ -2,6 +2,14 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] - 2026-11-11
+
+### Added
+
+- **Hardware health on the Overview.** A new Hardware section shows the temperature of each part the computer reports (processor, graphics card, mainboard, disks, Wi-Fi…), coloured as it gets close to that part's limit, and refreshed every 10 seconds.
+- **Disk health (S.M.A.R.T.).** Every disk gets a plain verdict — Healthy, Showing wear (keep a backup) or Failing (back up and replace) — with the reasons in words: damaged areas, areas that can't be read, SSD wear, NVMe warnings. Also its temperature, power-on time and how much of its lifetime is used. Disks are read at most every few minutes and sleeping disks are never woken.
+- **One-click install of smartmontools.** Disk health needs `smartctl`; if it's missing, AutoNode offers to install it with the system's package manager (apt, dnf, pacman or zypper). Virtual machines and cloud servers, which have no real disks or sensors, get a short explanation instead.
+
 ## [1.6.0] - 2026-11-11
 
 ### Added

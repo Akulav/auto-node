@@ -137,6 +137,7 @@ const LABELS = {
   'DELETE /api/sites/:name/tasks/:id': () => ['Deleted task'],
   'POST /api/sites/:name/tasks/:id/run': () => ['Ran task now'],
   'POST /api/sites/:name/clean': (p, b) => ['Cleaned packages and build files', b.reinstall ? 'and rebuilt' : null],
+  'POST /api/hardware/install': () => ['Installed the disk health tool (smartmontools)'],
   'PATCH /api/sites/:name/traffic': () => ['Changed redirects / access settings'],
   'POST /api/certs': () => ['Added a certificate'],
   'DELETE /api/certs/:id': (p) => ['Removed a certificate', p.id],
