@@ -150,7 +150,9 @@ test('a website-made file at a path the update adds pauses; "use GitHub" replace
   const entry = listed.find((r) => r.id === copies.at(-1));
   assert.equal(entry.kind, 'overwritten');
   assert.ok(!Number.isNaN(Date.parse(entry.at)));
-  assert.deepEqual(entry.files, [{ path: 'notes.txt', size: 'website notes'.length }]);
+  // The copy also holds the locked files kept during the same update (db.sqlite from an earlier test).
+  assert.deepEqual(entry.files.find((f) => f.path === 'notes.txt'), { path: 'notes.txt', size: 'website notes'.length });
+  assert.equal(entry.size, entry.files.reduce((n, f) => n + f.size, 0));
   const { stream } = rescuedApi.downloadStream('app', entry.id, 'notes.txt');
   let text = '';
   for await (const chunk of stream) text += chunk;
