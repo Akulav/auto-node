@@ -339,20 +339,24 @@ export const SITE_COLORS = [
   'linear-gradient(135deg,#8e8e93,#48484a)',
 ];
 export const siteColor = (name) => SITE_COLORS[[...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % SITE_COLORS.length];
-// name -> 'ok' | 'none': remembered for this page, so the 2-second live repaint doesn't re-ask for missing icons.
+// name -> 'ok' | time of the last miss, so the 2-second live repaint doesn't re-ask for missing icons
+// every time. A miss (site still starting, or AutoNode just updated) is retried after 30 s, like the
+// server's own live lookup, instead of hiding the icon until the page is reloaded.
 export const iconState = new Map();
+const ICON_RETRY_MS = 30_000;
 
 /** The website's own favicon on a tile, falling back to its first letter. */
 export function siteIcon(s, size) {
   const tile = h('div', { class: 'site-icon', style: { background: siteColor(s.name), ...(size ? { width: size + 'px', height: size + 'px', borderRadius: size * 0.27 + 'px', fontSize: size * 0.42 + 'px' } : {}) } }, (s.title || s.name)[0]);
-  if (iconState.get(s.name) === 'none') return tile;
+  const missed = iconState.get(s.name);
+  if (typeof missed === 'number' && Date.now() - missed < ICON_RETRY_MS) return tile;
   const img = h('img', { src: `/api/sites/${encodeURIComponent(s.name)}/icon`, alt: '', draggable: 'false' });
   img.addEventListener('load', () => {
     iconState.set(s.name, 'ok');
     tile.classList.add('has-img');
   });
   img.addEventListener('error', () => {
-    iconState.set(s.name, 'none');
+    iconState.set(s.name, Date.now());
     img.remove();
   });
   if (iconState.get(s.name) === 'ok') tile.classList.add('has-img');

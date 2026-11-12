@@ -2,6 +2,12 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.8.2] - 2026-11-13
+
+### Fixed
+
+- **A website's icon no longer stays missing until you reload the dashboard.** If the icon couldn't be found when the page first asked (the site was still starting, or its files changed after an update), the tile kept showing the letter for as long as the dashboard stayed open. It now asks again after 30 seconds and shows the icon as soon as it is there.
+
 ## [1.8.1] - 2026-11-12
 
 ### Fixed
