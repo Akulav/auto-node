@@ -8,7 +8,7 @@
 
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2018.17-5fb3a1)
 ![Platform](https://img.shields.io/badge/platform-linux-5fb3a1)
-![License](https://img.shields.io/badge/license-source--available-8ea1a4)
+![License](https://img.shields.io/badge/license-source--available-5c6270)
 
 Made with ♥ by **Akulav**
 
@@ -189,4 +189,4 @@ Backups contain private keys and tokens; store them somewhere private.
 
 ## License
 
-Source-available. See [LICENSE](LICENSE). © 2026 Akulav.
+Source-available under the [Akulav Source-Available License](LICENSE). © 2026 Akulav.

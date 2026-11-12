@@ -14,16 +14,18 @@ import { HttpError } from './util.js';
 
 const MAX_BYTES = 512 * 1024;
 const LIVE_TTL = 10 * 60_000;
+// A miss (site starting, stopped or crashed) is retried soon instead of hiding the icon for ten minutes.
+const LIVE_MISS_TTL = 30_000;
 
+// Folders a site commonly serves its pages from (frontend/ for a server + no-build SPA such as AkulavBox).
+const WEB_DIRS = ['', 'public', 'static', 'frontend', 'client', 'web', 'www', 'frontend/public', 'client/public'];
 const CANDIDATES = [
-  'favicon.ico', 'public/favicon.ico', 'static/favicon.ico', 'app/favicon.ico', 'src/app/favicon.ico',
-  'favicon.svg', 'public/favicon.svg', 'static/favicon.svg', 'favicon.png', 'public/favicon.png', 'static/favicon.png',
-  'app/icon.svg', 'app/icon.png', 'src/app/icon.svg', 'src/app/icon.png', 'public/icon.svg', 'public/icon.png',
-  'public/apple-touch-icon.png', 'apple-touch-icon.png', 'app/apple-icon.png',
+  ...WEB_DIRS.flatMap((d) => ['favicon.ico', 'favicon.svg', 'favicon.png', 'icon.svg', 'icon.png', 'apple-touch-icon.png'].map((f) => (d ? `${d}/${f}` : f))),
+  'app/favicon.ico', 'src/app/favicon.ico', 'app/icon.svg', 'app/icon.png', 'src/app/icon.svg', 'src/app/icon.png', 'app/apple-icon.png',
   'dist/favicon.ico', 'dist/favicon.svg', 'dist/favicon.png', 'build/favicon.ico', 'build/favicon.png', 'out/favicon.ico',
   'public/images/favicon.ico', 'public/img/favicon.ico', 'assets/favicon.ico', 'src/assets/favicon.ico', 'src/favicon.ico',
 ];
-const HTML_PAGES = ['public/index.html', 'index.html', 'src/index.html', 'dist/index.html', 'build/index.html', 'static/index.html'];
+const HTML_PAGES = [...WEB_DIRS.map((d) => (d ? `${d}/index.html` : 'index.html')), 'src/index.html', 'dist/index.html', 'build/index.html'];
 
 /** Identify an image by its first bytes. Returns a content type or null. */
 export function sniff(buf) {
@@ -97,7 +99,7 @@ const live = new Map(); // name -> { at, icon|null }
 /** Ask the running website for /favicon.ico (short timeout, size-capped, images only). */
 async function fetchLive(site) {
   const cached = live.get(site.name);
-  if (cached && Date.now() - cached.at < LIVE_TTL) return cached.icon;
+  if (cached && Date.now() - cached.at < (cached.icon ? LIVE_TTL : LIVE_MISS_TTL)) return cached.icon;
   let icon = null;
   try {
     const res = await fetch(`http://127.0.0.1:${site.port}/favicon.ico`, { redirect: 'manual', signal: AbortSignal.timeout(1500) });

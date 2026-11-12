@@ -24,7 +24,7 @@ const put = (site, rel, data) => {
 
 before(async () => {
   config.load();
-  for (const n of ['plain', 'linked', 'fake', 'none', 'next']) await sites.createSite({ name: n, template: 'empty' });
+  for (const n of ['plain', 'linked', 'fake', 'none', 'next', 'spa']) await sites.createSite({ name: n, template: 'empty' });
 });
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -49,6 +49,15 @@ test('prefers the icon index.html links to', () => {
   put('linked', 'public/index.html', '<html><head><link rel="shortcut icon" href="/brand/logo.svg?v=2"><link rel="icon" href="https://cdn.example.com/x.png"></head></html>');
   const r = icons.findOnDisk('linked');
   assert.equal(r.source, 'public/brand/logo.svg');
+  assert.equal(r.type, 'image/svg+xml');
+});
+
+test('finds the icon of a server + frontend/ app (AkulavBox layout)', () => {
+  put('spa', 'frontend/favicon.ico', ICO);
+  put('spa', 'frontend/favicon.svg', SVG);
+  put('spa', 'frontend/index.html', '<html><head><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="alternate icon" href="/favicon.ico"></head></html>');
+  const r = icons.findOnDisk('spa');
+  assert.equal(r.source, 'frontend/favicon.svg');
   assert.equal(r.type, 'image/svg+xml');
 });
 

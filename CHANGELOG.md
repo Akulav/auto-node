@@ -2,6 +2,16 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.8.1] - 2026-11-12
+
+### Fixed
+
+- **Website icons for apps that keep their page in `frontend/`** (like AkulavBox) now show on the dashboard tiles. AutoNode also looks in `client/`, `web/` and `www/`, and an icon it couldn't fetch while a site was starting is retried after 30 seconds instead of ten minutes.
+
+### Changed
+
+- Licensed under the Akulav Source-Available License, the same as every other Akulav project.
+
 ## [1.8.0] - 2026-11-11
 
 ### Changed
