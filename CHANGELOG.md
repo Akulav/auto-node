@@ -2,6 +2,12 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.8.3] - 2026-11-13
+
+### Added
+
+- **AutoNode's own icons, the same set AkulavBox serves:** `favicon.ico` (16, 32, 48 px) beside the SVG, `apple-touch-icon.png` for phones' home screens and `icon-512.png` for installing the dashboard as an app, all listed in the web manifest. `node scripts/icons.js` redraws them from the SVG's design (no dependencies).
+
 ## [1.8.2] - 2026-11-13
 
 ### Fixed
