@@ -1223,20 +1223,26 @@ async function siteGithub(site) {
   const ld = g.lastDeploy;
   const hasDomain = site.hostnames.length > 0;
 
-  const check = async (e) =>
-    busy(e.currentTarget, async () => {
-      const r = await api('POST', `/api/sites/${site.name}/git/check`);
-      clear(updatesBox).append(
-        r.upToDate
-          ? notice('good', h('b', {}, 'Up to date. '), `Running the latest commit${r.current ? ` (${r.current.hash})` : ''}.`)
-          : h(
-              'div',
-              { class: 'card' },
-              h('div', { class: 'row between', style: 'margin-bottom:10px' }, h('h3', {}, `${r.behind}${r.behind >= 20 ? '+' : ''} new change${r.behind === 1 ? '' : 's'}`), h('button', { class: 'btn primary sm', onclick: deployNow }, 'Update Now')),
-              h('div', { class: 'list', style: 'box-shadow:none' }, r.commits.map((c) => h('div', { class: 'item' }, h('code', { class: 'muted' }, c.hash), h('div', { class: 'grow ellipsis' }, c.subject), h('span', { class: 'small muted' }, `${c.author} · ${fmtAgo(c.date)}`)))),
-            ),
+  // One button deploys; what's new on GitHub is looked up on its own when the tab opens.
+  const checkLine = h('span', {}, `checked ${fmtAgo(g.lastCheck)}`);
+  const deployLabel = h('span', {}, g.behind > 0 ? `Update Now (${g.behind})` : 'Deploy Now');
+  const check = async () => {
+    const r = await api('POST', `/api/sites/${site.name}/git/check`).catch(() => null);
+    if (!r) return;
+    clear(checkLine).append(r.upToDate ? `up to date${r.current ? ` (${r.current.hash})` : ''}` : `checked ${fmtAgo(r.checkedAt)}`);
+    clear(deployLabel).append(r.upToDate ? 'Deploy Again' : `Update Now (${r.behind}${r.behind >= 20 ? '+' : ''})`);
+    clear(updatesBox);
+    if (!r.upToDate)
+      updatesBox.append(
+        h(
+          'div',
+          { class: 'card' },
+          h('h3', { style: 'margin-bottom:10px' }, `${r.behind}${r.behind >= 20 ? '+' : ''} new change${r.behind === 1 ? '' : 's'} on GitHub`),
+          h('div', { class: 'list', style: 'box-shadow:none' }, r.commits.map((c) => h('div', { class: 'item' }, h('code', { class: 'muted' }, c.hash), h('div', { class: 'grow ellipsis' }, c.subject), h('span', { class: 'small muted' }, `${c.author} · ${fmtAgo(c.date)}`)))),
+        ),
       );
-    });
+  };
+  if (!g.job?.running && !g.blocked) setTimeout(check, 0);
   const deployNow = async (e, resolve) =>
     busy(e.currentTarget, async () => {
       await api('POST', `/api/sites/${site.name}/deploy`, resolve ? { resolve } : {});
@@ -1290,9 +1296,8 @@ async function siteGithub(site) {
         'div',
         { class: 'row wrap', style: 'gap:14px' },
         h('div', { class: 'app-icon', style: { background: '#24292f', width: '48px', height: '48px', borderRadius: '13px' } }, icon('github')),
-        h('div', { class: 'grow' }, h('h2', {}, h('a', { href: g.repo.replace(/\.git$/, ''), target: '_blank', rel: 'noopener', style: 'color:inherit' }, repoShort)), h('div', { class: 'muted small' }, `Branch ${g.branch}${g.hasToken ? ' · private (token saved)' : ''} · checked ${fmtAgo(g.lastCheck)}`)),
-        h('button', { class: 'btn', onclick: check }, icon('restart'), 'Check for Updates'),
-        h('button', { class: 'btn primary', onclick: deployNow }, icon('download'), 'Deploy Now'),
+        h('div', { class: 'grow' }, h('h2', {}, h('a', { href: g.repo.replace(/\.git$/, ''), target: '_blank', rel: 'noopener', style: 'color:inherit' }, repoShort)), h('div', { class: 'muted small' }, `Branch ${g.branch}${g.hasToken ? ' · private (token saved)' : ''} · `, checkLine)),
+        h('button', { class: 'btn primary', title: 'Download the latest code from GitHub, build it and restart the website', onclick: deployNow }, icon('download'), deployLabel),
       ),
       ld && !g.blocked && h('div', { style: 'margin-top:16px' }, ld.ok ? notice('good', h('b', {}, 'Last deploy succeeded '), fmtAgo(ld.at), ld.commit ? ` · ${ld.commit.hash} “${ld.commit.subject}”` : '') : notice('bad', h('b', {}, 'Last deploy failed '), fmtAgo(ld.at), ' — ', ld.error || '')),
     ),
@@ -1420,6 +1425,12 @@ async function domainsView() {
   const zoneHasCert = (z) => certs.some((c) => c.names.includes(z.name) || c.names.includes(`*.${z.name}`));
   const routerUrl = cf.lanIp ? `http://${cf.lanIp.replace(/\.\d+$/, '.1')}` : null;
   const portsOk = cf.proxy?.http && cf.proxy?.https;
+  const hosts = cf.connectedHosts || [];
+  // Full (strict) matters for the zones websites use; with none connected yet, look at all of them.
+  const inUse = zones.filter((z) => hosts.some((x) => x === z.name || x.endsWith('.' + z.name)));
+  const strictZones = inUse.length ? inUse : zones;
+  const strictUnknown = strictZones.some((z) => !z.ssl);
+  const strictDone = strictZones.length > 0 && strictZones.every((z) => z.ssl === 'strict');
 
   /* ---- sheets with the detailed instructions ---- */
 
@@ -1562,7 +1573,7 @@ async function domainsView() {
     guideSheet(
       'Set encryption to Full (strict)',
       h('p', {}, 'In Cloudflare: your domain → ', h('b', {}, 'SSL/TLS'), ' → ', h('b', {}, 'Overview'), ' → ', h('b', {}, 'Configure'), ' → choose ', h('b', {}, 'Full (strict)'), '. This prevents redirect loops and keeps things secure.'),
-      cf.connected && zones.length > 0 && [h('p', { style: 'margin-top:12px' }, 'Or let AutoNode do it:'), h('div', { class: 'row wrap', style: 'margin-top:8px' }, zones.map((z) => h('button', { class: 'btn sm', onclick: (e) => busy(e.currentTarget, async () => (await api('POST', '/api/cloudflare/strict', { domain: z.name }), toast(`${z.name} set to Full (strict) ✓`))) }, `Set for ${z.name}`)))],
+      cf.connected && zones.length > 0 && [h('p', { style: 'margin-top:12px' }, 'Or let AutoNode do it:'), h('div', { class: 'row wrap', style: 'margin-top:8px' }, zones.map((z) => h('button', { class: 'btn sm', onclick: (e) => busy(e.currentTarget, async () => (await api('POST', '/api/cloudflare/strict', { domain: z.name }), toast(`${z.name} set to Full (strict) ✓`), render())) }, `Set for ${z.name}`)))],
     );
 
   /* ---- the page ---- */
@@ -1638,10 +1649,10 @@ async function domainsView() {
           { class: 'list' },
           step(1, zones.length > 0, 'Have your domain on Cloudflare', 'Bought on Cloudflare? Nothing to do.', how(registrarHelp)),
           step(2, cf.connected, 'Connect your Cloudflare account', cf.connected ? 'Connected — DNS is managed for you.' : 'Lets AutoNode manage DNS and HTTPS.', cf.connected ? null : how(connectSheet, 'Connect…')),
-          step(3, false, 'Let visitors reach this computer', 'Port forwarding or a Cloudflare Tunnel.', how(reachHelp)),
+          step(3, !!cf.reach?.ok, 'Let visitors reach this computer', cf.reach?.ok ? `Checked — ${cf.reach.host} opens from the internet.` : cf.reach?.error || (hosts.length ? 'Port forwarding or a Cloudflare Tunnel.' : 'Port forwarding or a Cloudflare Tunnel. Checked automatically once a website has a domain.'), how(reachHelp)),
           step(4, certs.length > 0, 'Turn on HTTPS (the padlock)', 'A free 15-year Origin Certificate.', how(httpsSheet, certs.length ? 'Manage' : 'Set Up…')),
-          step(5, false, 'Set encryption to Full (strict)', 'One setting in Cloudflare.', how(strictSheet)),
-          step(6, false, 'Connect a domain to a website', 'Website → Domains & Access.', h('a', { class: 'btn sm', href: '#/sites' }, 'Websites')),
+          step(5, strictDone, 'Set encryption to Full (strict)', strictDone ? 'Done in Cloudflare.' : strictUnknown ? "Couldn't read this setting with your token — check it in Cloudflare." : strictZones.length ? `Not yet for ${strictZones.filter((z) => z.ssl !== 'strict').map((z) => z.name).join(', ')}.` : 'One setting in Cloudflare.', strictDone ? null : how(strictSheet)),
+          step(6, hosts.length > 0, 'Connect a domain to a website', hosts.length ? `${hosts.slice(0, 2).join(', ')}${hosts.length > 2 ? ` and ${hosts.length - 2} more` : ''}.` : 'Website → Domains & Access.', h('a', { class: 'btn sm', href: '#/sites' }, 'Websites')),
         ),
       ),
       h('div', { class: 'stack', style: 'gap:16px' }, cloudflareCard, certCard),

@@ -8,6 +8,7 @@ import * as config from './config.js';
 import * as certs from './certs.js';
 import { allSites } from './sites.js';
 import { publicHostnames } from './traffic.js';
+import { reachToken } from './proxy.js';
 import { run, which, HttpError } from './util.js';
 
 const API = 'https://api.cloudflare.com/client/v4';
@@ -71,7 +72,16 @@ let zoneCache = { at: 0, zones: [] };
 export async function zones() {
   if (Date.now() - zoneCache.at < 60_000) return zoneCache.zones;
   const r = await cf('GET', '/zones?per_page=50');
-  zoneCache = { at: Date.now(), zones: r.result.map((z) => ({ id: z.id, name: z.name, status: z.status, plan: z.plan?.name, nameServers: z.name_servers })) };
+  const list = r.result.map((z) => ({ id: z.id, name: z.name, status: z.status, plan: z.plan?.name, nameServers: z.name_servers, ssl: null }));
+  // The encryption mode (needs Zone Settings: Read; stays null when the token can't see it).
+  await Promise.all(
+    list.map(async (z) => {
+      try {
+        z.ssl = (await cf('GET', `/zones/${z.id}/settings/ssl`)).result?.value || null;
+      } catch {}
+    }),
+  );
+  zoneCache = { at: Date.now(), zones: list };
   return zoneCache.zones;
 }
 
@@ -137,6 +147,37 @@ export async function setStrictSsl(domain) {
   const zone = await zoneFor(domain);
   if (!zone) throw new HttpError(404, `${domain} isn't in your Cloudflare account.`);
   await cf('PATCH', `/zones/${zone.id}/settings/ssl`, { value: 'strict' });
+  zone.ssl = 'strict';
+}
+
+let reachCache = { at: 0, key: '', value: null };
+/**
+ * Open a few connected domains from the internet (through Cloudflare) and check that
+ * this computer answers: proof that port forwarding (or a Tunnel) works.
+ */
+export async function checkReach(hostnames) {
+  const hosts = [...new Set(hostnames)].slice(0, 3);
+  const key = hosts.join(',');
+  if (reachCache.key === key && Date.now() - reachCache.at < 60_000) return reachCache.value;
+  let value = { ok: false, host: hosts[0], error: null };
+  outer: for (const host of hosts) {
+    for (const scheme of ['https', 'http']) {
+      try {
+        const res = await fetch(`${scheme}://${host}/.autonode/reach`, { redirect: 'manual', signal: AbortSignal.timeout(8000) });
+        const text = (await res.text()).trim();
+        if (res.ok && text === reachToken) {
+          value = { ok: true, host, error: null };
+          break outer;
+        }
+        if (res.status >= 520 && res.status <= 530) value = { ok: false, host, error: `Cloudflare can't reach this computer yet (error ${res.status}). Check the port forwarding on your router.` };
+        else value.error ||= `${host} answered, but not from this computer. Check its DNS record in Cloudflare.`;
+      } catch {
+        value.error ||= `Couldn't open ${host} from the internet yet. New DNS records can take a few minutes.`;
+      }
+    }
+  }
+  reachCache = { at: Date.now(), key, value };
+  return value;
 }
 
 /** Create a 15-year Cloudflare Origin Certificate for domain + *.domain and install it. */

@@ -115,6 +115,8 @@ async function headInfo(site) {
 export async function checkForUpdates(name) {
   const site = getSite(name);
   if (!site.git) throw new HttpError(400, 'This website is not connected to GitHub.');
+  // Two git commands in the same folder at once can trip over each other's lock files.
+  if (jobs.get(name)?.running) throw new HttpError(409, 'A deploy is running. Check again when it finishes.');
   await fixOwnership(siteDir(name));
   await ensureRepo(site);
   await git(site, ['fetch', '-q', '--depth', '50', 'origin', site.git.branch]);

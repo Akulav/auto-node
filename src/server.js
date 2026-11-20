@@ -320,7 +320,9 @@ on('POST', '/api/sites/:name/git/check', async (req, res, p) => deploy.checkForU
 on('POST', '/api/sites/:name/git/rotate', async (req, res, p) => (deploy.rotateSecret(p.name), { ok: true }));
 on('POST', '/api/sites/:name/deploy', async (req, res, p, body) => {
   const resolve = ['keep', 'overwrite'].includes(body.resolve) ? body.resolve : null;
-  return deploy.deploy(p.name, { reason: resolve ? `manual (${resolve === 'keep' ? 'keep server files' : 'use GitHub files'})` : 'manual', resolve });
+  // ref: "Redeploy" in the history (deploy() checks it is a commit id).
+  const ref = body.ref == null || body.ref === '' ? null : String(body.ref);
+  return deploy.deploy(p.name, { reason: ref ? 'redeploy' : resolve ? `manual (${resolve === 'keep' ? 'keep server files' : 'use GitHub files'})` : 'manual', resolve, ref });
 });
 
 // Locked files: never modified or deleted by GitHub updates.
@@ -339,13 +341,14 @@ on('DELETE', '/api/certs/:id', async (req, res, p) => (certs.remove(p.id), { ok:
 on('GET', '/api/cloudflare', async () => {
   const s = await cloudflareSummary();
   const out = { ...s, publicIp: await cf.publicIp(), lanIp: lanAddress(), proxy: proxy.status };
-  if (s.connected) {
-    try {
-      out.zones = await cf.zones();
-    } catch (err) {
-      out.zonesError = err.message;
-    }
-  }
+  const hosts = sites.allSites().flatMap((x) => x.hostnames);
+  out.connectedHosts = hosts;
+  const [zones, reach] = await Promise.all([
+    s.connected ? cf.zones().catch((err) => void (out.zonesError = err.message)) : undefined,
+    hosts.length && (proxy.status.http || proxy.status.https) ? cf.checkReach(hosts) : null,
+  ]);
+  if (zones) out.zones = zones;
+  out.reach = reach;
   return out;
 });
 on('POST', '/api/cloudflare/connect', async (req, res, p, body) => {

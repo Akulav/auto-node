@@ -6,6 +6,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
+import crypto from 'node:crypto';
 import * as config from './config.js';
 import * as certs from './certs.js';
 import { reservedPorts } from './sites.js';
@@ -15,6 +16,8 @@ import * as visitors from './visitors.js';
 let httpServer = null;
 let httpsServer = null;
 let hookHandler = null;
+/** Answered on /.autonode/reach, so the dashboard can check that the internet really reaches this computer. */
+export const reachToken = crypto.randomBytes(16).toString('hex');
 export const status = { http: null, https: null, httpError: null, httpsError: null };
 
 const HOP = ['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade', 'te', 'trailer', 'proxy-authorization', 'proxy-authenticate'];
@@ -90,6 +93,10 @@ export function forwardHeaders(req, secure) {
 function handle(secure) {
   return (req, res) => {
     const host = hostOf(req);
+    if (req.url === '/.autonode/reach') {
+      res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
+      return res.end(reachToken);
+    }
     if (req.url.startsWith('/.autonode/deploy/') && hookHandler) {
       // Public port: a rejection here must never take the daemon down.
       return Promise.resolve(hookHandler(req, res)).catch((err) => {
