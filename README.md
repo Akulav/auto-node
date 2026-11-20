@@ -187,6 +187,12 @@ Backups contain private keys and tokens; store them somewhere private.
 - **Backend:** Node.js (≥ 18.17) standard library only — `http`/`https` reverse proxy with SNI, systemd for process supervision, journald for logs, Cloudflare API via `fetch`.
 - **Frontend:** a single-page app in plain JavaScript and CSS — no framework, no build step. Light and dark mode, works on phones.
 
-## License
+---
 
-Source-available under the [Akulav Source-Available License](LICENSE). © 2026 Akulav.
+<div align="center">
+
+**Made with ❤️ by [Akulav](https://github.com/Akulav)**
+
+<sub>© 2026 Akulav. Source-available under the <a href="LICENSE">Akulav Source-Available License</a>.</sub>
+
+</div>
