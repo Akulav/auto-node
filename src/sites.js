@@ -78,6 +78,9 @@ export const siteKind = (site) => rust.kindOf(siteDir(site.name));
  */
 export const needsRust = (site) => siteKind(site) === 'rust' || [site.startCommand, site.installCommand, site.buildCommand].some(rust.usesCargo);
 
+/** One argument for /bin/sh, quoted only when it needs to be. */
+export const shellWord = (s) => (/^[\w./@+-]+$/.test(s) ? s : `'${String(s).replace(/'/g, `'\\''`)}'`);
+
 /** Figure out how to start a site when the user didn't specify. '' means: couldn't tell. */
 export function detectStartCommand(site) {
   if (site.startCommand?.trim()) return site.startCommand.trim();
@@ -86,7 +89,9 @@ export function detectStartCommand(site) {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
     if (pkg.scripts?.start) return 'npm start';
-    if (pkg.main && fs.existsSync(path.join(dir, pkg.main))) return `node ${JSON.stringify(pkg.main)}`;
+    // "main" comes from the repository and ends up in a shell script: plain names as they are,
+    // anything else in single quotes so the shell expands nothing in it ($(…), `…`).
+    if (typeof pkg.main === 'string' && pkg.main && fs.existsSync(path.join(dir, pkg.main))) return `node ${shellWord(pkg.main)}`;
   } catch {}
   for (const f of ['server.js', 'index.js', 'app.js', 'main.js', 'server.mjs', 'index.mjs', 'dist/index.js', 'build/index.js']) {
     if (fs.existsSync(path.join(dir, f))) return `node ${f}`;

@@ -19,7 +19,7 @@ import * as certs from './certs.js';
 import { runner } from './runner.js';
 import { siteDir, siteDataDir, siteKind, fixOwnership, allSites, startSite, reservedPorts } from './sites.js';
 import { deploy } from './deploy.js';
-import { HttpError, SITE_NAME_RE, run, which } from './util.js';
+import { HttpError, SITE_NAME_RE, HOSTNAME_RE, ENV_KEY_RE, run, which } from './util.js';
 
 const FORMAT = 'autonode-backup';
 const JSON_NAME = 'autonode-backup.json';
@@ -85,7 +85,14 @@ function validateManifest(m) {
   for (const [name, s] of Object.entries(sites || {})) {
     if (!SITE_NAME_RE.test(name) || !s || s.name !== name) throw new HttpError(400, `Backup contains an invalid website name: ${name}`);
     if (!Number.isInteger(s.port) || s.port < 1024 || s.port > 65535) throw new HttpError(400, `Backup has an invalid port for ${name}.`);
-    if (s.hostnames != null && !Array.isArray(s.hostnames)) throw new HttpError(400, `Backup has invalid domains for ${name}.`);
+    // The same rules the dashboard applies when you type these in: a backup file is just as untrusted.
+    if (s.hostnames != null && (!Array.isArray(s.hostnames) || s.hostnames.some((h) => typeof h !== 'string' || !HOSTNAME_RE.test(h) || h.startsWith('*.'))))
+      throw new HttpError(400, `Backup has invalid domains for ${name}.`);
+    if (s.env != null && (typeof s.env !== 'object' || Array.isArray(s.env) || Object.keys(s.env).some((k) => !ENV_KEY_RE.test(k))))
+      throw new HttpError(400, `Backup has invalid environment variables for ${name}.`);
+    for (const k of ['startCommand', 'installCommand', 'buildCommand']) {
+      if (s[k] != null && (typeof s[k] !== 'string' || /[\r\n]/.test(s[k]))) throw new HttpError(400, `Backup has an invalid ${k.replace('Command', '')} command for ${name}.`);
+    }
   }
   return m;
 }

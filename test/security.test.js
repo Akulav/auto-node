@@ -105,3 +105,30 @@ test('update file handling never follows symlinks', (t) => {
   assert.equal(deploy.plainFile(site, '../outside/secret.txt'), false);
   assert.equal(deploy.plainFile(site, 'real'), false, 'folders are not files');
 });
+
+test("package.json \"main\" can't run shell syntax in the start script", () => {
+  const dir = sites.siteDir('web');
+  const evil = '$(touch pwned).js';
+  fs.writeFileSync(path.join(dir, evil), '');
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ main: evil }));
+  assert.equal(sites.detectStartCommand(sites.getSite('web')), `node '${evil}'`);
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ main: 'app.js' }));
+  fs.writeFileSync(path.join(dir, 'app.js'), '');
+  assert.equal(sites.detectStartCommand(sites.getSite('web')), 'node app.js');
+  assert.equal(sites.shellWord("it's"), `'it'\\''s'`);
+  for (const f of ['package.json', 'app.js', evil]) fs.rmSync(path.join(dir, f));
+});
+
+test('a backup with bad domains, variable names or multi-line commands is refused', async () => {
+  const backup = await import('../src/backup.js');
+  const site = { name: 'x', port: 3500, hostnames: [], env: {} };
+  const tryRestore = async (patch) => {
+    const file = path.join(tmp, `b-${Math.random()}.json`);
+    fs.writeFileSync(file, JSON.stringify({ format: 'autonode-backup', config: { sites: { x: { ...site, ...patch } } } }));
+    return backup.inspect(file).finally(() => fs.rmSync(file, { force: true }));
+  };
+  await assert.rejects(tryRestore({ hostnames: ['evil\nhost'] }), /invalid domains/);
+  await assert.rejects(tryRestore({ env: { 'A=B': '1' } }), /environment variables/);
+  await assert.rejects(tryRestore({ startCommand: 'node a.js\nrm -rf /' }), /invalid start command/);
+  assert.equal((await tryRestore({ hostnames: ['blog.example.com'] })).sites[0].name, 'x');
+});
