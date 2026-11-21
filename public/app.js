@@ -590,7 +590,7 @@ async function siteView(name, tab = 'overview', sub) {
     tabLive?.(s);
   };
 
-  const body = h('div');
+  const body = h('div', { class: 'site-body' });
   const tabs = h('div', { class: 'tabs' }, SITE_TABS.map(([id, label]) => h('a', { href: `#/sites/${name}/${id}`, class: id === tab ? 'on' : '' }, label)));
   const views = { overview: siteOverview, files: siteFiles, logs: siteLogs, visitors: siteVisitors, domains: siteDomainsAndAccess, github: siteDeploys, tasks: siteTasks, settings: siteSettingsView };
   const res = await (views[tab] || siteOverview)(site, (fn) => (tabLive = fn), sub);
@@ -598,7 +598,7 @@ async function siteView(name, tab = 'overview', sub) {
 
   return h(
     'div',
-    { class: 'page' },
+    { class: 'page site' },
     h('a', { class: 'back', href: '#/sites' }, icon('back'), 'Websites'),
     h('div', { class: 'page-head' }, h('div', { class: 'row grow', style: 'gap:16px' }, siteIcon(site, 56), h('div', { class: 'grow' }, h('h1', { class: 'ellipsis' }, site.title || site.name), h('div', { class: 'row wrap', style: 'margin-top:6px' }, pillBox, h('span', { class: 'muted small' }, site.hostnames[0] || `Port ${site.port}`)))), actions),
     tabs,
@@ -632,22 +632,25 @@ function siteOverview(site, onLive) {
     deployBox,
     h(
       'div',
-      { class: 'grid cols-2' },
-      h('div', { class: 'card' }, h('h3', { style: 'margin-bottom:12px' }, 'Right now'), kv),
+      { class: 'overview-grid' },
       h(
         'div',
-        { class: 'card' },
-        h('h3', { style: 'margin-bottom:12px' }, 'Addresses'),
+        { class: 'stack', style: 'gap:16px' },
+        h('div', { class: 'card' }, h('h3', { style: 'margin-bottom:12px' }, 'Right now'), kv),
+        h(
+          'div',
+          { class: 'card' },
+          h('h3', { style: 'margin-bottom:12px' }, 'Addresses'),
         h(
           'div',
           { class: 'stack tight' },
           site.hostnames.map((hn) => h('a', { href: `https://${hn}`, target: '_blank', rel: 'noopener', class: 'row' }, icon('globe'), `https://${hn}`, !site.certs[hn] && h('span', { class: 'pill warn' }, 'No HTTPS'))),
           h('a', { href: site.lanUrl, target: '_blank', rel: 'noopener', class: 'row' }, icon('home'), site.lanUrl, h('span', { class: 'pill' }, 'Home network')),
-          !site.hostnames.length && h('a', { class: 'btn sm', href: `#/sites/${site.name}/domains`, style: 'align-self:flex-start;margin-top:8px' }, icon('plus'), 'Connect a domain'),
+            !site.hostnames.length && h('a', { class: 'btn sm', href: `#/sites/${site.name}/domains`, style: 'align-self:flex-start;margin-top:8px' }, icon('plus'), 'Connect a domain'),
+          ),
         ),
       ),
-    ),
-    h(
+      h(
       'div',
       { class: 'card' },
       h('h3', { style: 'margin-bottom:12px' }, 'Details'),
@@ -681,8 +684,9 @@ function siteOverview(site, onLive) {
         ),
         h('span', { class: 'small muted' }, site.kind === 'rust' ? 'Builds the program with cargo and restarts.' : 'Installs packages, runs the build script and restarts.'),
       ),
+      ),
+      storageCard(site),
     ),
-    storageCard(site),
   );
 }
 
@@ -718,7 +722,7 @@ function siteFiles(site) {
   const crumbs = h('div', { class: 'crumbs' });
   const table = h('table', { class: 'files' });
   const progressBox = h('div', { class: 'stack tight' });
-  const dz = h('div', { class: 'card flush dropzone' }, table);
+  const dz = h('div', { class: 'card flush dropzone fill' }, table);
   const fileInput = h('input', { type: 'file', multiple: true, class: 'hidden', onchange: (e) => uploadFiles([...e.target.files].map((f) => [f.name, f])) });
   const folderInput = h('input', { type: 'file', multiple: true, webkitdirectory: true, class: 'hidden', onchange: (e) => uploadFiles([...e.target.files].map((f) => [f.webkitRelativePath || f.name, f])) });
   const zipInput = h('input', { type: 'file', accept: '.zip', class: 'hidden', onchange: (e) => e.target.files[0] && uploadFiles([[e.target.files[0].name, e.target.files[0]]], { unzip: true }) });
@@ -1055,7 +1059,7 @@ function siteFiles(site) {
 /* ------------------------------------------------------------- logs */
 
 async function siteLogs(site) {
-  const term = h('div', { class: 'terminal', role: 'log' });
+  const term = h('div', { class: 'terminal fill', role: 'log' });
   let follow = true;
   const addLine = (line) => {
     const cls = /error|exception|fail|✖|ERR!/i.test(line) ? 'err' : /listening|ready|started|✓|▶/i.test(line) ? 'ok' : '';
@@ -1872,24 +1876,25 @@ async function siteVisitors(site) {
       ),
       h(
         'div',
-        { class: 'card' },
-        h('div', { class: 'row between', style: 'margin-bottom:14px' }, h('h3', {}, 'Visitors per day'), h('span', { class: 'small muted' }, `Last ${days} days`)),
-        barChart(v.days, { value: (p) => p.visitors, label: (p) => dateLabel(p.date), format: (n) => `${fmtNum(n)} visitor${n === 1 ? '' : 's'}`, ariaLabel: `Visitors per day for the last ${days} days` }),
-        axisRow(v.days.map((p) => dateLabel(p.date))),
-      ),
-      h(
-        'div',
         { class: 'grid cols-2' },
         h(
           'div',
           { class: 'card' },
-          h('h3', { style: 'margin-bottom:14px' }, 'Last 24 hours'),
-          barChart(v.hours, { value: (p) => p.requests, label: (p) => `${p.hour.slice(11)}:00`, format: (n) => `${fmtNum(n)} request${n === 1 ? '' : 's'}`, height: 110, ariaLabel: 'Requests per hour, last 24 hours' }),
-          axisRow(v.hours.map((p) => `${p.hour.slice(11)}:00`)),
+          h('div', { class: 'row between', style: 'margin-bottom:14px' }, h('h3', {}, 'Visitors per day'), h('span', { class: 'small muted' }, `Last ${days} days`)),
+          barChart(v.days, { value: (p) => p.visitors, label: (p) => dateLabel(p.date), format: (n) => `${fmtNum(n)} visitor${n === 1 ? '' : 's'}`, height: 120, ariaLabel: `Visitors per day for the last ${days} days` }),
+          axisRow(v.days.map((p) => dateLabel(p.date))),
         ),
         h(
           'div',
           { class: 'card' },
+          h('h3', { style: 'margin-bottom:14px' }, 'Last 24 hours'),
+          barChart(v.hours, { value: (p) => p.requests, label: (p) => `${p.hour.slice(11)}:00`, format: (n) => `${fmtNum(n)} request${n === 1 ? '' : 's'}`, height: 120, ariaLabel: 'Requests per hour, last 24 hours' }),
+          axisRow(v.hours.map((p) => `${p.hour.slice(11)}:00`)),
+        ),
+      ),
+      h(
+          'div',
+          { class: 'card shrink' },
           h('h3', { style: 'margin-bottom:12px' }, 'Top pages'),
           v.pages.length
             ? h(
@@ -1901,7 +1906,6 @@ async function siteVisitors(site) {
               )
             : h('p', { class: 'muted small' }, 'No page views yet.'),
         ),
-      ),
     ]);
   };
   await paint();
@@ -2019,6 +2023,7 @@ async function siteDomainsAndAccess(site) {
     });
   };
 
+  // The www choice sits with the domain list; access rules go in the second column.
   el.append(
     h(
       'div',
@@ -2028,6 +2033,10 @@ async function siteDomainsAndAccess(site) {
       apex ? wwwSeg : notice('info', 'Add your main domain (like akulav.com) above to use this.'),
       apex && t.www !== 'off' && h('p', { class: 'small muted', style: 'margin-top:10px' }, 'With Cloudflare connected, AutoNode adds the DNS record for the www address too. A wildcard certificate (*.domain) covers it.'),
     ),
+  );
+  const access = h(
+    'div',
+    { class: 'stack', style: 'gap:18px' },
     h(
       'div',
       { class: 'card pad-lg' },
@@ -2058,7 +2067,7 @@ async function siteDomainsAndAccess(site) {
       ),
     ),
   );
-  return el;
+  return h('div', { class: 'split' }, el, access);
 }
 
 /* ---- deploys: history + snapshots */
@@ -2145,7 +2154,9 @@ async function siteDeploys(site) {
     ),
   );
 
-  el.append(
+  const right = h(
+    'div',
+    { class: 'stack', style: 'gap:18px' },
     h('div', { class: 'section', style: 'margin-top:12px' }, h('div', { class: 'section-head' }, h('h2', {}, 'Deploy history'), h('span', { class: 'small muted' }, history.length ? `Last ${Math.min(20, history.length)} of ${history.length}` : '')), historyList),
     h(
       'div',
@@ -2155,7 +2166,7 @@ async function siteDeploys(site) {
     ),
     (site.git || rescued.length > 0) && rescuedSection(site, rescued),
   );
-  return el;
+  return h('div', { class: 'split' }, el, right);
 }
 
 /** Copies of files saved before a GitHub update kept or replaced them. */
@@ -2322,7 +2333,7 @@ function taskSheet(site, task, onSaved) {
 
 async function siteTasks(site) {
   const wrap = h('div', { class: 'stack', style: 'gap:16px' });
-  const listBox = h('div', { class: 'list' });
+  const listBox = h('div', { class: 'list shrink' });
   const paint = async () => {
     const { tasks } = await api('GET', `/api/sites/${site.name}/tasks`);
     clear(listBox);

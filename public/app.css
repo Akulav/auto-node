@@ -372,6 +372,27 @@ nav.segmented { align-self: flex-start; }
 .activity-scroll { height: calc(100vh - 210px); min-height: 280px; overflow-y: auto; overscroll-behavior: contain; padding: 0 4px 0 2px; margin: 0 -4px 0 -2px; border-radius: var(--radius); }
 .activity-scroll .day-head { position: sticky; top: 0; z-index: 1; margin: 0; padding: 4px 4px 8px; background: var(--bg); }
 
+/* ---------- website page: every tab fits on one screen; long lists scroll inside ---------- */
+.split { display: flex; flex-direction: column; gap: 24px; }
+.split > * { min-width: 0; }
+.overview-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .overview-grid { grid-template-columns: 1fr; } }
+@media (min-width: 1001px) and (min-height: 620px) {
+  .page.site { height: calc(100vh - 76px); display: flex; flex-direction: column; }
+  .page.site .back { margin-bottom: 6px; }
+  .page.site .page-head { margin-bottom: 12px; }
+  .page.site .tabs { margin: 0 0 16px; flex: none; }
+  .site-body { flex: 1 1 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 2px; margin: -2px; }
+  .site-body > * { flex: 1 1 auto; min-height: 0; }
+  /* .fill grows into the space left; .shrink keeps its size but scrolls when space runs out. */
+  .site-body .fill { flex: 1 1 0; min-height: 160px; overflow: auto; }
+  .site-body .shrink { flex: 0 1 auto; min-height: 120px; overflow: auto; }
+  .site-body .terminal.fill { height: auto; }
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 24px; }
+  .split > * { overflow-y: auto; overscroll-behavior: contain; padding: 2px; margin: -2px; }
+  .split > * > .section:first-child { margin-top: 0 !important; }
+}
+
 ol.steps { padding-left: 18px; margin: 10px 0; display: flex; flex-direction: column; gap: 6px; color: var(--text-2); }
 
 /* ---------- site cards ---------- */
