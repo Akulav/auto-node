@@ -32,7 +32,7 @@ import { runner, runnerKind, restoreChildren, stopAllChildren } from './runner.j
 import { HttpError, readJson, readBody, sendJson, normalizeHostname, lanAddress, clientIp } from './util.js';
 
 const PUBLIC = path.join(config.APP_ROOT, 'public');
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8' };
 
 /* ------------------------------------------------------------------ router */
 

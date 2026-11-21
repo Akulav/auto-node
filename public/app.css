@@ -1,19 +1,31 @@
 /* AutoNode — made by Akulav */
+
+/* Geist and Geist Mono (SIL Open Font License, see /fonts/OFL.txt), served by AutoNode itself. */
+@font-face { font-family: 'Geist'; font-style: normal; font-weight: 100 900; font-display: swap; src: url('/fonts/geist.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Geist'; font-style: normal; font-weight: 100 900; font-display: swap; src: url('/fonts/geist-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Geist Mono'; font-style: normal; font-weight: 100 900; font-display: swap; src: url('/fonts/geist-mono.woff2') format('woff2'); }
+
 :root {
-  --bg: #f5f5f7;
+  --bg: #f4f6fa;
   --surface: #ffffff;
-  --surface-2: #f2f2f4;
-  --surface-3: #e8e8ed;
-  --sidebar: rgba(246, 246, 248, 0.78);
-  --text: #1d1d1f;
-  --text-2: #515154;
-  --text-3: #86868b;
-  --border: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.14);
-  --accent: #0071e3;
-  --accent-hover: #0077ed;
-  --accent-soft: rgba(0, 113, 227, 0.1);
+  --surface-2: #f0f2f7;
+  --surface-3: #e5e8ef;
+  --sidebar: rgba(247, 248, 252, 0.8);
+  --text: #141821;
+  --text-2: #4b5261;
+  --text-3: #7d8494;
+  --border: rgba(20, 30, 60, 0.08);
+  --border-strong: rgba(20, 30, 60, 0.15);
+  --accent: #2d6fe8;
+  --accent-hover: #3b7cf2;
+  --accent-soft: rgba(45, 111, 232, 0.1);
   --on-accent: #ffffff;
+  /* The app icon's gradient: primary buttons, the brand name and the background glow. */
+  --brand-a: #3a8dff;
+  --brand-b: #5e5ce6;
+  --glow: 0.1;
   --good: #1f9d3e;
   --good-soft: rgba(52, 199, 89, 0.14);
   --warn: #b25e00;
@@ -24,29 +36,30 @@
   --icon-tile: #ffffff; /* favicons are drawn for light browser tabs */
   --code-bg: #1d1d1f;
   --code-text: #f5f5f7;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 24px 80px rgba(0, 0, 0, 0.18);
-  --radius: 18px;
+  --shadow: 0 1px 2px rgba(16, 24, 48, 0.05), 0 8px 24px -12px rgba(16, 24, 48, 0.12);
+  --shadow-lg: 0 24px 80px rgba(10, 16, 32, 0.22);
+  --radius: 16px;
   --radius-sm: 10px;
-  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI Variable', 'Segoe UI', Inter, Roboto, 'Helvetica Neue', sans-serif;
-  --mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  --font: 'Geist', 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'Geist Mono', ui-monospace, 'Cascadia Mono', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg: #000000;
-    --surface: #1c1c1e;
-    --surface-2: #2c2c2e;
-    --surface-3: #3a3a3c;
-    --sidebar: rgba(28, 28, 30, 0.72);
-    --text: #f5f5f7;
-    --text-2: #c7c7cc;
-    --text-3: #8e8e93;
+    --bg: #0a0c11;
+    --surface: #13161d;
+    --surface-2: #1b1f28;
+    --surface-3: #262b36;
+    --sidebar: rgba(14, 16, 22, 0.78);
+    --text: #f2f4f8;
+    --text-2: #c3c8d3;
+    --text-3: #868d9c;
     --border: rgba(255, 255, 255, 0.08);
-    --border-strong: rgba(255, 255, 255, 0.16);
-    --accent: #0a84ff;
-    --accent-hover: #409cff;
-    --accent-soft: rgba(10, 132, 255, 0.18);
+    --border-strong: rgba(255, 255, 255, 0.15);
+    --accent: #5b9dff;
+    --accent-hover: #7cb1ff;
+    --accent-soft: rgba(91, 157, 255, 0.16);
+    --glow: 0.16;
     --good: #30d158;
     --good-soft: rgba(48, 209, 88, 0.16);
     --warn: #ffb340;
@@ -55,8 +68,8 @@
     --bad-soft: rgba(255, 69, 58, 0.18);
     --track: #2c2c2e;
     --icon-tile: #f2f2f4; /* stays light so dark favicons remain visible */
-    --code-bg: #0b0b0c;
-    --shadow: none;
+    --code-bg: #07080c;
+    --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 16px 40px -20px rgba(0, 0, 0, 0.7);
     --shadow-lg: 0 24px 80px rgba(0, 0, 0, 0.6);
     color-scheme: dark;
   }
@@ -67,16 +80,29 @@ html, body { margin: 0; }
 body {
   font-family: var(--font);
   font-size: 15px;
-  line-height: 1.47;
+  line-height: 1.5;
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.006em;
+  font-feature-settings: 'ss01';
+}
+/* Two soft glows in the icon's colours, painted once (fixed, no animation). */
+body::before {
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(55% 45% at 0% 0%, rgb(58 141 255 / var(--glow)), transparent 70%),
+    radial-gradient(45% 40% at 100% 100%, rgb(94 92 230 / var(--glow)), transparent 70%);
+}
+::selection { background: var(--accent-soft); }
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
-h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.022em; }
+h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.025em; }
 h1 { font-size: 34px; line-height: 1.12; }
 h2 { font-size: 22px; line-height: 1.2; }
 h3 { font-size: 17px; }
@@ -101,17 +127,18 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 18px; }
 .brand img { width: 32px; height: 32px; }
-.brand b { font-size: 17px; letter-spacing: -0.02em; }
+.brand b { font-size: 17px; font-weight: 700; letter-spacing: -0.03em; background: linear-gradient(100deg, var(--brand-a), var(--brand-b)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .brand small { display: block; color: var(--text-3); font-size: 11px; margin-top: -2px; }
 .nav a {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 10px; border-radius: 8px;
   color: var(--text); font-weight: 500; text-decoration: none;
 }
+.nav a { transition: background 0.15s, color 0.15s; }
 .nav a:hover { background: var(--surface-3); text-decoration: none; }
-.nav a.active { background: var(--accent); color: var(--on-accent); }
-.nav a.active svg { color: var(--on-accent); }
-.nav svg { width: 18px; height: 18px; color: var(--accent); flex: none; }
+.nav a.active { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-soft); }
+.nav svg { width: 18px; height: 18px; color: var(--text-3); flex: none; }
+.nav a.active svg { color: var(--accent); }
 .sidebar .spacer { flex: 1; }
 .sidebar .credit { font-size: 11px; color: var(--text-3); padding: 8px 10px; }
 .sidebar .credit b { color: var(--text-2); font-weight: 600; }
@@ -176,18 +203,19 @@ a.row > svg { color: currentColor; }
 /* ---------- buttons ---------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  border: 0; border-radius: 980px;
-  padding: 8px 16px; min-height: 36px;
-  font-weight: 500; font-size: 14px;
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 7px 15px; min-height: 36px;
+  font-weight: 550; font-size: 14px;
   background: var(--surface-2); color: var(--text);
   cursor: pointer; white-space: nowrap; text-decoration: none;
-  transition: background 0.15s, transform 0.05s, opacity 0.15s;
+  transition: background 0.15s, border-color 0.15s, filter 0.15s, transform 0.05s, opacity 0.15s;
 }
 .btn:hover { background: var(--surface-3); text-decoration: none; }
-.btn:active { transform: scale(0.98); }
+.btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: 0.45; cursor: default; transform: none; }
-.btn.primary { background: var(--accent); color: var(--on-accent); }
-.btn.primary:hover { background: var(--accent-hover); }
+.btn.primary { background: linear-gradient(135deg, var(--brand-a), var(--brand-b)); border-color: transparent; color: var(--on-accent); box-shadow: 0 6px 18px -8px rgb(58 141 255 / 0.6); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger, .btn.ghost { border-color: transparent; }
 .btn.danger { background: var(--bad-soft); color: var(--bad); }
 .btn.danger.solid { background: var(--bad); color: #fff; }
 .btn.ghost { background: transparent; color: var(--accent); padding-left: 8px; padding-right: 8px; }
@@ -348,7 +376,7 @@ ol.steps { padding-left: 18px; margin: 10px 0; display: flex; flex-direction: co
 
 /* ---------- site cards ---------- */
 .site-card { display: flex; flex-direction: column; gap: 14px; color: inherit; text-decoration: none; transition: transform 0.15s, box-shadow 0.15s; }
-.site-card:hover { text-decoration: none; transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08); }
+.site-card:hover { text-decoration: none; transform: translateY(-2px); border-color: var(--border-strong); box-shadow: 0 14px 34px -16px rgb(58 141 255 / 0.35); }
 .site-card .stats { display: flex; gap: 16px; color: var(--text-3); font-size: 13px; font-variant-numeric: tabular-nums; }
 .site-icon { position: relative; overflow: hidden; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 19px; flex: none; text-transform: uppercase; }
 /* The site's favicon covers the letter tile once it has loaded. */
@@ -440,7 +468,7 @@ details.more > div { margin-top: 10px; }
 /* ---------- auth ---------- */
 .auth { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .auth .box { width: min(400px, 100%); text-align: center; }
-.auth img { width: 88px; height: 88px; margin-bottom: 20px; filter: drop-shadow(0 10px 24px rgba(0, 113, 227, 0.3)); }
+.auth img { width: 88px; height: 88px; margin-bottom: 20px; filter: drop-shadow(0 12px 28px rgb(94 92 230 / 0.35)); }
 .auth h1 { font-size: 32px; }
 .auth p { color: var(--text-3); margin: 8px 0 28px; }
 .auth form { display: flex; flex-direction: column; gap: 12px; }
