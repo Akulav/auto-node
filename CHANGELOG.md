@@ -2,6 +2,23 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] - 2026-11-21
+
+### Changed
+
+- **A fresher dashboard look.** The Geist typeface (bundled with AutoNode, no outside font service), colours taken from the app icon, a soft background glow, gradient primary buttons and calmer sidebar highlighting, in light and dark mode. Animations turn off when your system asks for reduced motion.
+- README in the same layout as Akulav's other projects.
+
+### Security
+
+- **Imported backups are checked like dashboard input.** Domains, environment variable names and one-line start, install and build commands in a backup file are now validated before anything is restored.
+- **A repository's `package.json` "main" can no longer smuggle shell syntax into the start script.** It is quoted, so `$(…)` or backticks in it are never run.
+
+### Removed
+
+- The clean-up of start scripts left in `/etc/autonode/run/` by version 1.0.0 and older. Updating from those versions still works; the old, unused script files simply stay behind (delete `/etc/autonode/run/` by hand if you like).
+- Unused internal helpers.
+
 ## [1.8.4] - 2026-11-20
 
 ### Changed

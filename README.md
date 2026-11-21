@@ -1,22 +1,30 @@
 <div align="center">
 
-<img src="public/favicon.svg" width="96" height="96" alt="AutoNode logo">
+<img src="public/favicon.svg" width="128" height="128" alt="AutoNode logo">
 
 # AutoNode
 
-**Your websites, your server.** Host Node.js and Rust websites on your own Linux machine and run them from a beautiful dashboard on your home network — domains, HTTPS, GitHub deploys, files, logs and live system stats, with all the technical stuff hidden away. Plain Node.js, zero dependencies.
+**Host Node.js and Rust websites on your own Linux server from a friendly dashboard, made by Akulav**
 
-![Node](https://img.shields.io/badge/node-%E2%89%A5%2018.17-5fb3a1)
-![Platform](https://img.shields.io/badge/platform-linux-5fb3a1)
-![License](https://img.shields.io/badge/license-source--available-5c6270)
+[![Release](https://img.shields.io/github/v/release/Akulav/auto-node?style=for-the-badge)](https://github.com/Akulav/auto-node/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Akulav/auto-node/total?style=for-the-badge)](https://github.com/Akulav/auto-node/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/Akulav/auto-node/ci.yml?branch=main&style=for-the-badge&label=build)](https://github.com/Akulav/auto-node/actions/workflows/ci.yml)
 
-Made with ♥ by **Akulav**
+![Platform](https://img.shields.io/badge/platform-linux-5fb3a1?style=flat-square)
+![Node](https://img.shields.io/badge/node-%E2%89%A5%2018.17-5fb3a1?style=flat-square)
+![License](https://img.shields.io/badge/license-source--available-5c6270?style=flat-square)
+
+[Features](#-features) · [Getting started](#-getting-started) · [Data and backups](#-data-and-backups) · [Documentation](#-documentation)
+
+**[⬇ Download the latest release](https://github.com/Akulav/auto-node/releases/latest)**
 
 </div>
 
 ---
 
-## Features
+Your websites, your server: domains, HTTPS, GitHub deploys, files, logs and live system stats from a dashboard on your home network, with all the technical stuff hidden away. Plain Node.js, zero dependencies.
+
+## ✨ Features
 
 | | |
 | --- | --- |
@@ -44,7 +52,7 @@ Made with ♥ by **Akulav**
 | **Self-updating** | AutoNode checks its own repository and updates itself (optionally automatically). |
 | **Safe by default** | Password-protected dashboard that only your home network can reach (optional remote access over HTTPS), with optional HTTPS on the same port. Websites run as an unprivileged `autonode` user with systemd hardening. |
 
-## Requirements
+## 📋 Requirements
 
 - A Linux machine with systemd (Ubuntu, Debian, Raspberry Pi OS, Fedora, Arch…)
 - Node.js 18.17 or newer (the installer adds Node 22 if missing)
@@ -53,7 +61,7 @@ Made with ♥ by **Akulav**
   (a system-wide `cargo` in `/usr/bin` works too)
 - Optional: a domain on [Cloudflare](https://dash.cloudflare.com) — e.g. one bought through Cloudflare Registrar
 
-## Getting started
+## 🚀 Getting started
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Akulav/auto-node/main/install.sh | sudo bash
@@ -90,7 +98,7 @@ Have more domains? With an API token that covers *All zones*, the Domains page l
 
 Your app only needs to listen on `process.env.PORT`.
 
-## CLI
+## ⌨️ CLI
 
 | Command | What it does |
 | --- | --- |
@@ -107,7 +115,7 @@ Your app only needs to listen on `process.env.PORT`.
 | `autonode logs` | Follow AutoNode's own logs |
 | `autonode dev` | Run the dashboard locally in dev mode |
 
-## Configuration
+## ⚙️ Configuration
 
 Most settings live in the dashboard. A few can be set with environment variables (for example in `/etc/systemd/system/autonode.service`):
 
@@ -125,7 +133,7 @@ Ports (dashboard `7070`, HTTP `80`, HTTPS `443`) can be changed in `/etc/autonod
 
 The dashboard only answers your home network (and VPNs like Tailscale) by default. To open it from anywhere, turn on **Settings → Security → Secure dashboard (HTTPS)**, then **Settings → Remote Access**, and forward port `7070` (TCP) on your router to the server. Outside visitors are only ever served over HTTPS, wrong passwords lock an address for longer each time, and a burst of wrong passwords from the internet pauses outside sign-ins while home sign-ins keep working. Turn it off from the dashboard or with `sudo autonode remote off`.
 
-## Upgrading
+## 🔄 Upgrading
 
 AutoNode updates itself from GitHub. Your websites keep running during the update.
 
@@ -135,7 +143,7 @@ AutoNode updates itself from GitHub. Your websites keep running during the updat
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 
-## Data and backups
+## 💾 Data and backups
 
 Everything AutoNode stores lives in two folders:
 
@@ -174,7 +182,7 @@ sudo autonode import ~/autonode.tar.gz                 # new machine (after inst
 
 Backups contain private keys and tokens; store them somewhere private.
 
-## Documentation
+## 📚 Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the pieces fit together — services, proxy, deploys, security model
 - [docs/API.md](docs/API.md): the dashboard's HTTP API and the deploy webhook
@@ -182,10 +190,14 @@ Backups contain private keys and tokens; store them somewhere private.
 - [CLAUDE.md](CLAUDE.md): notes for AI coding assistants working on this repo
 - [CHANGELOG.md](CHANGELOG.md): release history
 
-## Tech stack
+## 🛠️ Tech stack
 
 - **Backend:** Node.js (≥ 18.17) standard library only — `http`/`https` reverse proxy with SNI, systemd for process supervision, journald for logs, Cloudflare API via `fetch`.
 - **Frontend:** a single-page app in plain JavaScript and CSS — no framework, no build step. Light and dark mode, works on phones.
+
+## 🙏 Credits
+
+- [Geist and Geist Mono](https://github.com/vercel/geist-font) by the Geist Project Authors, bundled in `public/fonts/` under the [SIL Open Font License 1.1](public/fonts/OFL.txt)
 
 ---
 

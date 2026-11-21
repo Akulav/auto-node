@@ -57,7 +57,7 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/network.js` | Interface info, static IP via `nmcli` or netplan |
 | `src/selfupdate.js` | Update AutoNode from its own git checkout |
 | `src/backup.js` | Export (JSON manifest or `.tar.gz` with site files) and restore with clash resolution |
-| `public/` | The web app, plain ES modules: `ui.js` (shared helpers: `h()`, `api()`, sheets, toasts…), `app.js` (shell, router, pages), `settings.js` (Settings tabs at `#/settings/<tab>`), `site-settings.js` (a website's Settings sections at `#/sites/<name>/settings/<section>`), `app.css` |
+| `public/` | The web app, plain ES modules: `ui.js` (shared helpers: `h()`, `api()`, sheets, toasts…), `app.js` (shell, router, pages), `settings.js` (Settings tabs at `#/settings/<tab>`), `site-settings.js` (a website's Settings sections at `#/sites/<name>/settings/<section>`), `app.css`, and `fonts/` (Geist and Geist Mono as woff2, OFL; nothing is loaded from other servers) |
 
 ## Websites
 
