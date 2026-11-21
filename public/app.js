@@ -641,13 +641,14 @@ function siteOverview(site, onLive) {
           'div',
           { class: 'card' },
           h('h3', { style: 'margin-bottom:12px' }, 'Addresses'),
-        h(
-          'div',
-          { class: 'stack tight' },
-          site.hostnames.map((hn) => h('a', { href: `https://${hn}`, target: '_blank', rel: 'noopener', class: 'row' }, icon('globe'), `https://${hn}`, !site.certs[hn] && h('span', { class: 'pill warn' }, 'No HTTPS'))),
-          h('a', { href: site.lanUrl, target: '_blank', rel: 'noopener', class: 'row' }, icon('home'), site.lanUrl, h('span', { class: 'pill' }, 'Home network')),
-            !site.hostnames.length && h('a', { class: 'btn sm', href: `#/sites/${site.name}/domains`, style: 'align-self:flex-start;margin-top:8px' }, icon('plus'), 'Connect a domain'),
+          // One line per address: long domains are cut with "…" (full address on hover), the list scrolls past a few.
+          h(
+            'div',
+            { class: 'addr-list' },
+            site.hostnames.map((hn) => h('a', { href: `https://${hn}`, target: '_blank', rel: 'noopener', class: 'addr', title: `https://${hn}` }, icon('globe'), h('span', { class: 'ellipsis' }, hn), !site.certs[hn] && h('span', { class: 'pill warn' }, 'No HTTPS'))),
+            h('a', { href: site.lanUrl, target: '_blank', rel: 'noopener', class: 'addr', title: site.lanUrl }, icon('home'), h('span', { class: 'ellipsis' }, site.lanUrl.replace(/^https?:\/\//, '')), h('span', { class: 'pill' }, 'Home network')),
           ),
+          !site.hostnames.length && h('a', { class: 'btn sm', href: `#/sites/${site.name}/domains`, style: 'margin-top:12px' }, icon('plus'), 'Connect a domain'),
         ),
       ),
       h(
@@ -1096,7 +1097,7 @@ async function siteDomains(site) {
           'div',
           { class: 'item' },
           h('div', { class: 'app-icon', style: { background: 'linear-gradient(135deg,#ff9f0a,#ff6a00)' } }, icon('globe')),
-          h('div', { class: 'grow' }, h('a', { class: 'label', href: `https://${hn}`, target: '_blank', rel: 'noopener' }, hn), h('div', { class: 'row wrap', style: 'margin-top:4px;gap:6px' }, site.certs[hn] ? h('span', { class: 'pill good' }, icon('lock'), 'HTTPS ready') : h('a', { class: 'pill warn', href: '#/domains' }, 'Needs certificate'), cf.connected && h('span', { class: 'pill info' }, 'DNS managed'))),
+          h('div', { class: 'grow', style: 'min-width:0' }, h('a', { class: 'label ellipsis', style: 'display:block', href: `https://${hn}`, target: '_blank', rel: 'noopener', title: hn }, hn), h('div', { class: 'row wrap', style: 'margin-top:4px;gap:6px' }, site.certs[hn] ? h('span', { class: 'pill good' }, icon('lock'), 'HTTPS ready') : h('a', { class: 'pill warn', href: '#/domains' }, 'Needs certificate'), cf.connected && h('span', { class: 'pill info' }, 'DNS managed'))),
           h(
             'button',
             {
@@ -1135,34 +1136,37 @@ async function siteDomains(site) {
   };
   const zones = cf.zones || [];
   const suggestions = zones.flatMap((z) => [z.name, `www.${z.name}`, `${site.name}.${z.name}`]).filter((s) => !site.hostnames.includes(s)).slice(0, 6);
+  const dnsByHand = () =>
+    guideSheet(
+      'Setting up DNS by hand',
+      h(
+        'ol',
+        {},
+        h('li', {}, 'Open ', ext('https://dash.cloudflare.com', 'dash.cloudflare.com'), ' → your domain → ', h('b', {}, 'DNS'), ' → ', h('b', {}, 'Records'), ' → ', h('b', {}, 'Add record'), '.'),
+        h('li', {}, 'Type ', h('b', {}, 'A'), '. Name: ', h('b', {}, '@'), ' for the main domain, or the subdomain part (e.g. ', h('b', {}, 'blog'), ').'),
+        h('li', {}, 'IPv4 address: ', h('b', {}, cf.publicIp || 'your public IP'), '. Keep ', h('b', {}, 'Proxied'), ' (orange cloud) on. Save.'),
+      ),
+    );
   return h(
     'div',
-    { class: 'stack', style: 'gap:18px' },
-    !cf.connected && notice('info', h('b', {}, 'Tip: '), 'Connect Cloudflare on the ', h('a', { href: '#/domains' }, 'Domains'), ' page and AutoNode will create DNS records and keep them updated automatically.'),
+    { class: 'stack', style: 'gap:12px' },
+    h('div', { class: 'section-head', style: 'margin-bottom:0' }, h('h2', {}, 'Domains'), site.hostnames.length > 0 && h('span', { class: 'small muted' }, `${site.hostnames.length} connected`)),
     listBox,
     h(
       'div',
       { class: 'card' },
       h('h3', {}, 'Add a domain or subdomain'),
-      h('p', { class: 'muted small' }, 'Use your main domain (akulav.com) or any subdomain (blog.akulav.com, shop.akulav.com).'),
-      h('form', { class: 'input-row', style: 'margin-top:14px', onsubmit: add }, input, h('button', { class: 'btn primary' }, 'Add')),
+      h('form', { class: 'input-row', style: 'margin-top:12px', onsubmit: add }, input, h('button', { class: 'btn primary' }, 'Add')),
       suggestions.length > 0 && h('div', { class: 'row wrap', style: 'margin-top:12px;gap:6px' }, h('span', { class: 'small muted' }, 'Suggestions:'), suggestions.map((s) => h('button', { class: 'btn sm', type: 'button', onclick: () => (input.value = s) }, s))),
       !cf.connected &&
         h(
-          'details',
-          { class: 'more' },
-          h('summary', {}, 'Setting up DNS by hand'),
-          h(
-            'div',
-            { class: 'small', style: 'color:var(--text-2)' },
-            h(
-              'ol',
-              { style: 'padding-left:18px;display:flex;flex-direction:column;gap:6px' },
-              h('li', {}, 'Open ', h('a', { href: 'https://dash.cloudflare.com', target: '_blank', rel: 'noopener' }, 'dash.cloudflare.com'), ' → your domain → ', h('b', {}, 'DNS'), ' → ', h('b', {}, 'Records'), ' → ', h('b', {}, 'Add record'), '.'),
-              h('li', {}, 'Type ', h('b', {}, 'A'), '. Name: ', h('b', {}, '@'), ' for the main domain, or the subdomain part (e.g. ', h('b', {}, 'blog'), ').'),
-              h('li', {}, 'IPv4 address: ', h('b', {}, cf.publicIp || 'your public IP'), '. Keep ', h('b', {}, 'Proxied'), ' (orange cloud) on. Save.'),
-            ),
-          ),
+          'p',
+          { class: 'small muted', style: 'margin-top:12px' },
+          'Connect Cloudflare on the ',
+          h('a', { href: '#/domains' }, 'Domains'),
+          ' page and AutoNode creates the DNS records for you. Or ',
+          h('a', { href: '#', onclick: (e) => (e.preventDefault(), dnsByHand()) }, 'set up DNS by hand'),
+          '.',
         ),
     ),
   );
@@ -1217,7 +1221,7 @@ async function siteGithub(site) {
         ),
       ),
     ]);
-    return wrap;
+    return { connected: false, connect: wrap };
   }
 
   const deployBox = h('div');
@@ -1292,22 +1296,93 @@ async function siteGithub(site) {
     ]);
   }
 
-  append(wrap, [
+  // "Deploy instantly when you push": step-by-step setup, kept in a sheet so the tab fits on one screen.
+  const pushSetup = () =>
+    sheet(
+      (close) =>
+        h(
+          'div',
+          { class: 'guide' },
+          h('h2', {}, 'Deploy instantly when you push'),
+          h('p', { class: 'muted', style: 'margin:4px 0 16px' }, 'Instead of waiting for the next check, let GitHub tell AutoNode about new code. Pick one.'),
+          !hasDomain && notice('warn', h('b', {}, 'Connect a domain first. '), 'GitHub needs a public address to reach this computer. ', h('a', { href: `#/sites/${site.name}/domains`, onclick: close }, 'Add a domain'), '.'),
+          h(
+            'div',
+            { class: 'grid cols-2', style: 'margin-top:14px' },
+            h(
+              'div',
+              { class: 'card' },
+              h('span', { class: 'pill info' }, 'Easiest'),
+              h('h3', { style: 'margin:10px 0 4px' }, 'GitHub Webhook'),
+              h('p', { class: 'muted small' }, 'Deploys every push to ', h('b', {}, g.branch), '.'),
+              h(
+                'ol',
+                { class: 'small' },
+                h('li', {}, 'In your repo: ', h('a', { href: g.repo.replace(/\.git$/, '') + '/settings/hooks/new', target: '_blank', rel: 'noopener' }, 'Settings → Webhooks → Add webhook'), '.'),
+                h('li', {}, h('b', {}, 'Payload URL:'), copyable(g.webhookUrl, 'URL copied')),
+                h('li', {}, h('b', {}, 'Content type:'), ' application/json'),
+                h('li', {}, h('b', {}, 'Secret:'), copyable(g.webhookSecret, 'Secret copied')),
+                h('li', {}, 'Keep “Just the push event” and click ', h('b', {}, 'Add webhook'), '.'),
+              ),
+            ),
+            h(
+              'div',
+              { class: 'card' },
+              h('span', { class: 'pill' }, 'Test first'),
+              h('h3', { style: 'margin:10px 0 4px' }, 'GitHub Actions'),
+              h('p', { class: 'muted small' }, 'Runs your tests and build on GitHub; only deploys if they pass.'),
+              h(
+                'ol',
+                { class: 'small' },
+                h('li', {}, 'In your repo: ', h('a', { href: g.repo.replace(/\.git$/, '') + '/settings/secrets/actions/new', target: '_blank', rel: 'noopener' }, 'Settings → Secrets → Actions → New secret'), '.'),
+                h('li', {}, 'Name ', h('b', {}, 'AUTONODE_DEPLOY_TOKEN'), ', value:', copyable(g.webhookSecret, 'Token copied')),
+                h('li', {}, 'Add this file as ', h('code', {}, '.github/workflows/deploy.yml'), ' and push:'),
+              ),
+              h('div', { class: 'row', style: 'margin-top:10px' }, h('button', { class: 'btn sm', onclick: () => copy(g.workflow, 'deploy.yml copied') }, icon('copy'), 'Copy deploy.yml')),
+              h('details', { class: 'more' }, h('summary', {}, 'Show the file'), codeBlock(g.workflow)),
+            ),
+          ),
+          h(
+            'div',
+            { class: 'sheet-actions' },
+            h(
+              'button',
+              {
+                class: 'btn',
+                onclick: async () => {
+                  close();
+                  if (!(await confirmSheet({ title: 'Create a new secret?', text: 'The old secret stops working. Update it in your GitHub webhook or Actions secret.', ok: 'Create New Secret' }))) return;
+                  await api('POST', `/api/sites/${site.name}/git/rotate`);
+                  render();
+                },
+              },
+              'New Secret',
+            ),
+            h('button', { class: 'btn primary', onclick: close }, 'Done'),
+          ),
+        ),
+      { wide: true },
+    );
+
+  const top = [
     h(
       'div',
-      { class: 'card pad-lg' },
+      { class: 'card' },
       h(
         'div',
         { class: 'row wrap', style: 'gap:14px' },
-        h('div', { class: 'app-icon', style: { background: '#24292f', width: '48px', height: '48px', borderRadius: '13px' } }, icon('github')),
-        h('div', { class: 'grow' }, h('h2', {}, h('a', { href: g.repo.replace(/\.git$/, ''), target: '_blank', rel: 'noopener', style: 'color:inherit' }, repoShort)), h('div', { class: 'muted small' }, `Branch ${g.branch}${g.hasToken ? ' · private (token saved)' : ''} · `, checkLine)),
+        h('div', { class: 'app-icon', style: { background: '#24292f', width: '44px', height: '44px', borderRadius: '12px' } }, icon('github')),
+        h('div', { class: 'grow', style: 'min-width:0' }, h('h2', { class: 'ellipsis' }, h('a', { href: g.repo.replace(/\.git$/, ''), target: '_blank', rel: 'noopener', style: 'color:inherit' }, repoShort)), h('div', { class: 'muted small' }, `Branch ${g.branch}${g.hasToken ? ' · private (token saved)' : ''} · `, checkLine)),
+        h('button', { class: 'btn', title: 'Let GitHub start a deploy the moment you push', onclick: pushSetup }, icon('bolt'), 'Deploy on Push…'),
         h('button', { class: 'btn primary', title: 'Download the latest code from GitHub, build it and restart the website', onclick: deployNow }, icon('download'), deployLabel),
       ),
-      ld && !g.blocked && h('div', { style: 'margin-top:16px' }, ld.ok ? notice('good', h('b', {}, 'Last deploy succeeded '), fmtAgo(ld.at), ld.commit ? ` · ${ld.commit.hash} “${ld.commit.subject}”` : '') : notice('bad', h('b', {}, 'Last deploy failed '), fmtAgo(ld.at), ' — ', ld.error || '')),
+      ld && !g.blocked && h('div', { style: 'margin-top:14px' }, ld.ok ? notice('good', h('b', {}, 'Last deploy succeeded '), fmtAgo(ld.at), ld.commit ? ` · ${ld.commit.hash} “${ld.commit.subject}”` : '') : notice('bad', h('b', {}, 'Last deploy failed '), fmtAgo(ld.at), ' — ', ld.error || '')),
     ),
     blockedBox,
     updatesBox,
     deployBox,
+  ];
+  const side = [
     h(
       'div',
       { class: 'list' },
@@ -1336,83 +1411,26 @@ async function siteGithub(site) {
     ),
     h(
       'div',
-      { class: 'section', style: 'margin-top:12px' },
-      h('h2', {}, 'Locked files'),
-      h('p', { class: 'muted', style: 'margin:4px 0 16px' }, 'Updates from GitHub never change or delete locked files — perfect for databases, uploads and .env. You can also lock items from the Files tab.'),
+      { class: 'card' },
+      h('h3', { style: 'margin-bottom:4px' }, 'Locked files'),
+      h('p', { class: 'muted small', style: 'margin-bottom:12px' }, 'Updates from GitHub never change or delete locked files — perfect for databases, uploads and .env. You can also lock items from the Files tab.'),
       lockEditor(site.name, g.locks || []),
     ),
-    h(
-      'div',
-      { class: 'section', style: 'margin-top:12px' },
-      h('h2', {}, 'Deploy instantly when you push'),
-      h('p', { class: 'muted', style: 'margin:4px 0 16px' }, 'Instead of waiting for the next check, let GitHub tell AutoNode about new code. Pick one.'),
-      !hasDomain && notice('warn', h('b', {}, 'Connect a domain first. '), 'GitHub needs a public address to reach this computer. ', h('a', { href: `#/sites/${site.name}/domains` }, 'Add a domain'), '.'),
-      h(
-        'div',
-        { class: 'grid cols-2', style: 'margin-top:14px' },
-        h(
-          'div',
-          { class: 'card' },
-          h('span', { class: 'pill info' }, 'Easiest'),
-          h('h3', { style: 'margin:10px 0 4px' }, 'GitHub Webhook'),
-          h('p', { class: 'muted small' }, 'Deploys every push to ', h('b', {}, g.branch), '.'),
-          h(
-            'ol',
-            { class: 'small', style: 'padding-left:18px;color:var(--text-2);display:flex;flex-direction:column;gap:8px' },
-            h('li', {}, 'In your repo: ', h('a', { href: g.repo.replace(/\.git$/, '') + '/settings/hooks/new', target: '_blank', rel: 'noopener' }, 'Settings → Webhooks → Add webhook'), '.'),
-            h('li', {}, h('b', {}, 'Payload URL:'), copyable(g.webhookUrl, 'URL copied')),
-            h('li', {}, h('b', {}, 'Content type:'), ' application/json'),
-            h('li', {}, h('b', {}, 'Secret:'), copyable(g.webhookSecret, 'Secret copied')),
-            h('li', {}, 'Keep “Just the push event” and click ', h('b', {}, 'Add webhook'), '.'),
-          ),
-        ),
-        h(
-          'div',
-          { class: 'card' },
-          h('span', { class: 'pill' }, 'Test first'),
-          h('h3', { style: 'margin:10px 0 4px' }, 'GitHub Actions'),
-          h('p', { class: 'muted small' }, 'Runs your tests and build on GitHub; only deploys if they pass.'),
-          h(
-            'ol',
-            { class: 'small', style: 'padding-left:18px;color:var(--text-2);display:flex;flex-direction:column;gap:8px' },
-            h('li', {}, 'In your repo: ', h('a', { href: g.repo.replace(/\.git$/, '') + '/settings/secrets/actions/new', target: '_blank', rel: 'noopener' }, 'Settings → Secrets → Actions → New secret'), '.'),
-            h('li', {}, 'Name ', h('b', {}, 'AUTONODE_DEPLOY_TOKEN'), ', value:', copyable(g.webhookSecret, 'Token copied')),
-            h('li', {}, 'Add this file as ', h('code', {}, '.github/workflows/deploy.yml'), ' and push:'),
-          ),
-          h('button', { class: 'btn sm', style: 'margin-top:8px', onclick: () => sheet((close) => h('div', {}, h('h2', {}, 'deploy.yml'), h('p', { class: 'muted', style: 'margin-bottom:14px' }, 'Save as .github/workflows/deploy.yml in your repository.'), codeBlock(g.workflow), h('div', { class: 'sheet-actions' }, h('button', { class: 'btn', onclick: close }, 'Close'))), { wide: true }) }, icon('file'), 'Show Workflow File'),
-        ),
-      ),
-    ),
-    h(
-      'div',
-      { class: 'row wrap', style: 'margin-top:8px' },
-      h(
-        'button',
-        {
-          class: 'btn sm',
-          onclick: async () => {
-            if (!(await confirmSheet({ title: 'Create a new secret?', text: 'The old secret stops working. Update it in your GitHub webhook or Actions secret.', ok: 'Create New Secret' }))) return;
-            await api('POST', `/api/sites/${site.name}/git/rotate`);
-            render();
-          },
-        },
-        'New Secret',
-      ),
-      h(
-        'button',
-        {
-          class: 'btn sm danger',
-          onclick: async () => {
-            if (!(await confirmSheet({ title: 'Disconnect GitHub?', text: 'The website and its files stay as they are. It just stops receiving updates.', ok: 'Disconnect', danger: true }))) return;
-            await api('DELETE', `/api/sites/${site.name}/git`);
-            render();
-          },
-        },
-        'Disconnect GitHub',
-      ),
-    ),
-  ]);
-  return wrap;
+  ];
+  const disconnect = h(
+    'button',
+    {
+      class: 'btn sm danger',
+      style: 'align-self:flex-start',
+      onclick: async () => {
+        if (!(await confirmSheet({ title: 'Disconnect GitHub?', text: 'The website and its files stay as they are. It just stops receiving updates.', ok: 'Disconnect', danger: true }))) return;
+        await api('DELETE', `/api/sites/${site.name}/git`);
+        render();
+      },
+    },
+    'Disconnect GitHub',
+  );
+  return { connected: true, top, side, disconnect };
 }
 
 /* ========================================================== domains */
@@ -1953,7 +1971,7 @@ async function siteDomainsAndAccess(site) {
   );
 
   // Maintenance
-  const mMsg = h('input', { class: 'input', value: t.maintenance.message || '', placeholder: "We're making some improvements and will be back shortly." });
+  const mMsg = h('input', { class: 'input', value: t.maintenance.message || '', placeholder: 'Message, e.g. “Back in an hour”' });
   const mToggle = toggle(t.maintenance.enabled, async (v, input) => {
     try {
       await api('PATCH', `/api/sites/${site.name}/traffic`, { maintenance: { enabled: v, message: mMsg.value } });
@@ -1990,7 +2008,7 @@ async function siteDomainsAndAccess(site) {
 
   // Redirects
   let rules = [...t.redirects];
-  const rulesBox = h('div', { class: 'list' });
+  const rulesBox = h('div', { class: 'list', style: 'box-shadow:none' });
   const paintRules = () => {
     clear(rulesBox);
     if (!rules.length) rulesBox.append(h('div', { class: 'item' }, h('div', { class: 'muted small' }, 'No redirects yet.')));
@@ -2023,46 +2041,47 @@ async function siteDomainsAndAccess(site) {
     });
   };
 
-  // The www choice sits with the domain list; access rules go in the second column.
+  // Left column: where the website lives (domains, www). Right column: who gets in and where they go.
   el.append(
     h(
       'div',
-      { class: 'section', style: 'margin-top:12px' },
-      h('h2', {}, 'www'),
-      h('p', { class: 'muted', style: 'margin:4px 0 14px' }, 'Make both akulav.com and www.akulav.com work, sending visitors to the one you prefer.'),
+      { class: 'card' },
+      h('h3', { style: 'margin-bottom:4px' }, 'www address'),
+      h('p', { class: 'muted small', style: 'margin-bottom:12px' }, 'Make both akulav.com and www.akulav.com work, sending visitors to the one you prefer.'),
       apex ? wwwSeg : notice('info', 'Add your main domain (like akulav.com) above to use this.'),
       apex && t.www !== 'off' && h('p', { class: 'small muted', style: 'margin-top:10px' }, 'With Cloudflare connected, AutoNode adds the DNS record for the www address too. A wildcard certificate (*.domain) covers it.'),
     ),
   );
   const access = h(
     'div',
-    { class: 'stack', style: 'gap:18px' },
+    { class: 'stack', style: 'gap:12px' },
+    h('div', { class: 'section-head', style: 'margin-bottom:0' }, h('h2', {}, 'Visitors & redirects')),
     h(
       'div',
-      { class: 'card pad-lg' },
-      h('div', { class: 'row' }, h('div', { class: 'grow' }, h('h3', {}, 'Maintenance mode'), h('p', { class: 'muted small' }, 'Visitors see a clean “Back soon” page while you work. The Preview link (home network) still shows the real site.')), mToggle),
-      h('div', { class: 'input-row', style: 'margin-top:14px' }, mMsg, h('button', { class: 'btn sm', onclick: (e) => save({ maintenance: { enabled: t.maintenance.enabled, message: mMsg.value } }, e.currentTarget, 'Message saved ✓') }, 'Save Message')),
+      { class: 'card' },
+      h('div', { class: 'row', style: 'align-items:flex-start' }, h('div', { class: 'grow' }, h('h3', {}, 'Maintenance mode'), h('p', { class: 'muted small' }, 'Visitors see a “Back soon” page while you work. Preview (home network) still shows the real site.')), mToggle),
+      h('div', { class: 'input-row', style: 'margin-top:12px' }, mMsg, h('button', { class: 'btn sm', onclick: (e) => save({ maintenance: { enabled: t.maintenance.enabled, message: mMsg.value } }, e.currentTarget, 'Message saved ✓') }, 'Save Message')),
     ),
     h(
       'div',
-      { class: 'card pad-lg' },
-      h('div', { class: 'row' }, h('div', { class: 'grow' }, h('h3', {}, 'Password protection'), h('p', { class: 'muted small' }, 'Ask visitors for a username and password before showing the site — great for staging or private sites.')), aToggle),
+      { class: 'card' },
+      h('div', { class: 'row', style: 'align-items:flex-start' }, h('div', { class: 'grow' }, h('h3', {}, 'Password protection'), h('p', { class: 'muted small' }, 'Ask for a username and password before showing the site — great for staging or private sites.')), aToggle),
       accessFields,
       t.access.enabled && !site.hostnames.every((hn) => site.certs[hn]) && h('div', { style: 'margin-top:12px' }, notice('warn', 'Add an HTTPS certificate for this domain so the password is never sent unencrypted.')),
     ),
     h(
       'div',
-      { class: 'section', style: 'margin-top:12px' },
-      h('h2', {}, 'Redirects'),
-      h('p', { class: 'muted', style: 'margin:4px 0 14px' }, 'Send old addresses to new ones. End with * to redirect a whole section, e.g. /blog/* → /news/*.'),
+      { class: 'card' },
+      h('h3', { style: 'margin-bottom:4px' }, 'Redirects'),
+      h('p', { class: 'muted small', style: 'margin-bottom:12px' }, 'Send old addresses to new ones. End with * to move a whole section, e.g. /blog/* → /news/*.'),
       rulesBox,
       h(
         'form',
-        { class: 'row wrap', style: 'margin-top:12px', onsubmit: addRule },
-        (rFrom = h('input', { class: 'input mono', placeholder: '/old-page', style: 'flex:1;min-width:140px', required: true })),
+        { class: 'redirect-form', onsubmit: addRule },
+        (rFrom = h('input', { class: 'input mono', placeholder: '/old-page', required: true })),
         h('span', { class: 'muted' }, '→'),
-        (rTo = h('input', { class: 'input mono', placeholder: '/new-page or https://…', style: 'flex:2;min-width:180px', required: true })),
-        (rCode = h('select', { class: 'input', style: 'width:auto' }, h('option', { value: 301 }, 'Permanent (301)'), h('option', { value: 302 }, 'Temporary (302)'))),
+        (rTo = h('input', { class: 'input mono', placeholder: '/new-page or https://…', required: true })),
+        (rCode = h('select', { class: 'input' }, h('option', { value: 301 }, 'Permanent (301)'), h('option', { value: 302 }, 'Temporary (302)'))),
         h('button', { class: 'btn primary' }, 'Add'),
       ),
     ),
@@ -2073,7 +2092,7 @@ async function siteDomainsAndAccess(site) {
 /* ---- deploys: history + snapshots */
 
 async function siteDeploys(site) {
-  const el = await siteGithub(site);
+  const g = await siteGithub(site);
   const [{ history }, { snapshots, keep }, { rescued }] = await Promise.all([api('GET', `/api/sites/${site.name}/history`), api('GET', `/api/sites/${site.name}/snapshots`), api('GET', `/api/sites/${site.name}/rescued`)]);
   const snapIds = new Set(snapshots.map((s) => s.id));
 
@@ -2154,19 +2173,25 @@ async function siteDeploys(site) {
     ),
   );
 
-  const right = h(
+  const head = (title, aside) => h('div', { class: 'section-head', style: 'margin-bottom:0' }, h('h2', {}, title), aside);
+  // Left: what happened (history, snapshots). Right: how updates behave (GitHub settings, locks, rescued copies).
+  const timeline = h(
     'div',
-    { class: 'stack', style: 'gap:18px' },
-    h('div', { class: 'section', style: 'margin-top:12px' }, h('div', { class: 'section-head' }, h('h2', {}, 'Deploy history'), h('span', { class: 'small muted' }, history.length ? `Last ${Math.min(20, history.length)} of ${history.length}` : '')), historyList),
-    h(
-      'div',
-      { class: 'section', style: 'margin-top:12px' },
-      h('div', { class: 'section-head' }, h('div', {}, h('h2', {}, 'Snapshots'), h('p', { class: 'muted small' }, `Copies of the website folder for rolling back. Taken before every GitHub deploy; the newest ${keep} are kept.`)), (snapBtn = h('button', { class: 'btn sm', onclick: () => busy(snapBtn, async () => (await api('POST', `/api/sites/${site.name}/snapshots`), toast('Snapshot saved ✓'), render())) }, icon('box'), 'Take Snapshot Now'))),
-      snapList,
-    ),
-    (site.git || rescued.length > 0) && rescuedSection(site, rescued),
+    { class: 'stack', style: 'gap:12px' },
+    head('Deploy history', h('span', { class: 'small muted' }, history.length ? `Last ${Math.min(20, history.length)} of ${history.length}` : '')),
+    historyList,
+    Object.assign(head('Snapshots', (snapBtn = h('button', { class: 'btn sm', onclick: () => busy(snapBtn, async () => (await api('POST', `/api/sites/${site.name}/snapshots`), toast('Snapshot saved ✓'), render())) }, icon('box'), 'Take Snapshot Now'))), { style: 'margin:12px 0 0' }),
+    h('p', { class: 'muted small', style: 'margin-top:-6px' }, `Copies of the website folder for rolling back. Taken before every GitHub deploy; the newest ${keep} are kept.`),
+    snapList,
   );
-  return h('div', { class: 'split' }, el, right);
+  const rescuedCard = rescued.length > 0 && rescuedSection(site, rescued);
+  if (!g.connected) return h('div', { class: 'split' }, g.connect, h('div', { class: 'stack', style: 'gap:16px' }, timeline, rescuedCard));
+  return h(
+    'div',
+    { class: 'stack', style: 'gap:16px' },
+    ...g.top,
+    h('div', { class: 'split' }, timeline, h('div', { class: 'stack', style: 'gap:12px' }, head('Updates'), ...g.side, rescuedCard, g.disconnect)),
+  );
 }
 
 /** Copies of files saved before a GitHub update kept or replaced them. */
@@ -2234,13 +2259,14 @@ function rescuedSection(site, rescued) {
     }),
   );
 
+  list.style.boxShadow = 'none';
   return h(
     'div',
-    { class: 'section', style: 'margin-top:12px' },
+    { class: 'card' },
     h(
       'div',
       { class: 'section-head' },
-      h('div', {}, h('h2', {}, 'Rescued files'), h('p', { class: 'muted small' }, `Copies saved before an update kept or replaced files your website changed. The newest 20 are kept${rescued.length ? ` · ${fmtBytes(total)} in total` : ''}.`)),
+      h('div', {}, h('h3', { style: 'margin-bottom:4px' }, 'Rescued files'), h('p', { class: 'muted small' }, `Copies saved before an update kept or replaced files your website changed. The newest 20 are kept${rescued.length ? ` · ${fmtBytes(total)} in total` : ''}.`)),
       rescued.length > 0 && (allBtn = h('button', { class: 'btn sm danger', onclick: removeAll }, icon('trash'), 'Delete All')),
     ),
     list,
