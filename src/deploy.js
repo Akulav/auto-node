@@ -190,7 +190,6 @@ export function plainFile(site, rel) {
   }
   return true;
 }
-const isFile = plainFile;
 
 const O_NOFOLLOW = fs.constants.O_NOFOLLOW || 0; // undefined on Windows (dev only)
 
@@ -255,7 +254,7 @@ export async function planUpdate(site, rev = 'FETCH_HEAD') {
     // First deploy into this folder: nothing is tracked yet.
   }
 
-  const candidates = [...new Set([...modified, ...[...incoming.keys()].filter((p) => !tracked.has(p))])].filter((p) => isFile(site, p));
+  const candidates = [...new Set([...modified, ...[...incoming.keys()].filter((p) => !tracked.has(p))])].filter((p) => plainFile(site, p));
   const local = await diskHashes(site, candidates);
   const conflicts = [];
   const preserve = [];
@@ -386,7 +385,7 @@ export function deploy(name, { reason = 'manual', pull = true, resolve = null, r
           ); // remember: lock them for future updates
           say(`[${stamp()}] Locked for future updates: ${blocking.map((c) => c.path).join(', ')}\n`);
         }
-        keepNow = [...new Set(keepNow)].filter((p) => isFile(site, p));
+        keepNow = [...new Set(keepNow)].filter((p) => plainFile(site, p));
         const overwrite = resolve === 'overwrite' ? blocking.map((c) => c.path) : [];
         const saved = rescue(site, [...keepNow, ...overwrite], resolve === 'overwrite' ? 'overwritten' : 'kept');
         if (saved) say(`[${stamp()}] Saved a copy of ${keepNow.length + overwrite.length} file(s) to ${saved}\n`);

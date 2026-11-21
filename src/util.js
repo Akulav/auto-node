@@ -214,14 +214,3 @@ export class LineBuffer {
     return this.lines.join('\n') + (this.partial ? '\n' + this.partial : '');
   }
 }
-
-export function formatBytes(n) {
-  if (!Number.isFinite(n)) return '—';
-  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  while (n >= 1024 && i < u.length - 1) {
-    n /= 1024;
-    i++;
-  }
-  return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
-}

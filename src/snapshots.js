@@ -146,10 +146,3 @@ export async function restore(name, id) {
   }
   return { restored: id, safety: safety?.id || null, keptLocked: keep };
 }
-
-export function snapshotFile(name, id) {
-  checkId(id);
-  const file = path.join(dirFor(name), `${id}.tar.gz`);
-  if (!fs.existsSync(file)) throw new HttpError(404, 'That snapshot no longer exists.');
-  return file;
-}

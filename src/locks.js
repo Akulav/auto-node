@@ -56,8 +56,6 @@ export function matcher(locks = []) {
   return (p) => tests.some((t) => t(p));
 }
 
-export const isLocked = (locks, rel) => matcher(locks)(String(rel).replace(/^\/+/, ''));
-
 /** Every existing file in the site that a lock covers (skips node_modules and .git). */
 export function lockedFiles(name, locks) {
   if (!locks?.length) return [];
