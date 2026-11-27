@@ -2,6 +2,12 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.9.1] - 2026-11-27
+
+### Fixed
+
+- **Websites whose page sits one folder down now show their icon.** AutoNode also looks in folders such as `master/public/` or `apps/web/` (projects that hold several programs, like FleetView), and when a running website has no `/favicon.ico` it follows the icon its home page links to.
+
 ## [1.9.0] - 2026-11-21
 
 ### Changed

@@ -26,6 +26,48 @@ const CANDIDATES = [
   'public/images/favicon.ico', 'public/img/favicon.ico', 'assets/favicon.ico', 'src/assets/favicon.ico', 'src/favicon.ico',
 ];
 const HTML_PAGES = [...WEB_DIRS.map((d) => (d ? `${d}/index.html` : 'index.html')), 'src/index.html', 'dist/index.html', 'build/index.html'];
+const ICON_FILES = ['favicon.ico', 'favicon.svg', 'favicon.png', 'icon.svg', 'icon.png'];
+// Monorepos keep the web page one folder down, e.g. master/public/ (FleetView) or apps/web/.
+const NESTED_WEB_DIRS = ['public', 'static', 'frontend', 'web', 'www'];
+const SKIP_DIRS = new Set(['node_modules', 'target', 'vendor', 'tmp', 'logs', 'coverage']);
+const MAX_SUBDIRS = 40;
+
+/** Web folders one level down (sub/public, sub/web, ...) that really exist, without following symlinks. */
+function nestedWebDirs(root) {
+  let entries;
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const subs = entries
+    .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !SKIP_DIRS.has(e.name) && !WEB_DIRS.includes(e.name))
+    .map((e) => e.name)
+    .sort()
+    .slice(0, MAX_SUBDIRS);
+  const out = [];
+  for (const sub of subs) {
+    for (const d of NESTED_WEB_DIRS) {
+      try {
+        if (fs.lstatSync(path.join(root, sub, d)).isDirectory()) out.push(`${sub}/${d}`);
+      } catch {}
+    }
+  }
+  return out;
+}
+
+/** Local icon paths that <link rel="icon"> tags in a page point to, as written (e.g. "/favicon.png"). */
+export function iconHrefs(html) {
+  const out = [];
+  for (const tag of html.match(/<link\b[^>]*>/gi) || []) {
+    if (!/\brel\s*=\s*["']?[^"'>]*\bicon\b/i.test(tag)) continue;
+    const href = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1];
+    if (!href || /^(?:[a-z]+:)?\/\//i.test(href) || /^[a-z]+:/i.test(href)) continue; // only local files
+    const clean = href.split(/[?#]/)[0];
+    if (clean) out.push(clean);
+  }
+  return out;
+}
 
 /** Identify an image by its first bytes. Returns a content type or null. */
 export function sniff(buf) {
@@ -65,16 +107,12 @@ function readPlain(root, rel) {
 }
 
 /** Icon paths an index.html links to, e.g. <link rel="icon" href="/favicon.svg">. */
-function linkedIcons(root) {
+function linkedIcons(root, pages) {
   const out = [];
-  for (const page of HTML_PAGES) {
+  for (const page of pages) {
     const html = readPlain(root, page)?.data?.toString('utf8');
     if (!html) continue;
-    for (const tag of html.match(/<link\b[^>]*>/gi) || []) {
-      if (!/\brel\s*=\s*["']?[^"'>]*\bicon\b/i.test(tag)) continue;
-      const href = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1];
-      if (!href || /^(?:[a-z]+:)?\/\//i.test(href) || href.startsWith('data:')) continue; // only local files
-      const clean = href.split(/[?#]/)[0];
+    for (const clean of iconHrefs(html)) {
       const base = path.posix.dirname(page);
       out.push(path.posix.normalize(clean.startsWith('/') ? `${base}/${clean.slice(1)}` : `${base}/${clean}`).replace(/^\.\//, ''));
       if (clean.startsWith('/')) out.push(`public/${clean.slice(1)}`); // frameworks serve "/" from public/
@@ -86,7 +124,10 @@ function linkedIcons(root) {
 /** Find an icon in the website's files. */
 export function findOnDisk(name) {
   const root = siteDir(name);
-  for (const rel of [...linkedIcons(root), ...CANDIDATES]) {
+  const nested = nestedWebDirs(root);
+  const pages = [...HTML_PAGES, ...nested.map((d) => `${d}/index.html`)];
+  const nestedFiles = nested.flatMap((d) => ICON_FILES.map((f) => `${d}/${f}`));
+  for (const rel of [...linkedIcons(root, pages), ...CANDIDATES, ...nestedFiles]) {
     const f = readPlain(root, rel);
     const type = f && sniff(f.data);
     if (type) return { type, data: f.data, source: rel };
@@ -96,26 +137,39 @@ export function findOnDisk(name) {
 
 const live = new Map(); // name -> { at, icon|null }
 
-/** Ask the running website for /favicon.ico (short timeout, size-capped, images only). */
+/** GET a path from the running website on 127.0.0.1 (short timeout, size-capped). Returns the body or null. */
+async function getLocal(port, urlPath) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}${urlPath}`, { redirect: 'manual', signal: AbortSignal.timeout(1500) });
+    if (!res.ok || Number(res.headers.get('content-length') || 0) > MAX_BYTES || !res.body) return null;
+    const chunks = [];
+    let size = 0;
+    for await (const c of res.body) {
+      size += c.length;
+      if (size > MAX_BYTES) return null;
+      chunks.push(c);
+    }
+    return Buffer.concat(chunks);
+  } catch {
+    return null;
+  }
+}
+
+/** Ask the running website for /favicon.ico, then for whatever icon its home page links to (images only). */
 async function fetchLive(site) {
   const cached = live.get(site.name);
   if (cached && Date.now() - cached.at < (cached.icon ? LIVE_TTL : LIVE_MISS_TTL)) return cached.icon;
   let icon = null;
-  try {
-    const res = await fetch(`http://127.0.0.1:${site.port}/favicon.ico`, { redirect: 'manual', signal: AbortSignal.timeout(1500) });
-    if (res.ok && Number(res.headers.get('content-length') || 0) <= MAX_BYTES && res.body) {
-      const chunks = [];
-      let size = 0;
-      for await (const c of res.body) {
-        size += c.length;
-        if (size > MAX_BYTES) throw new Error('too large');
-        chunks.push(c);
-      }
-      const data = Buffer.concat(chunks);
-      const type = sniff(data);
-      if (type) icon = { type, data, source: 'live' };
+  const paths = ['/favicon.ico'];
+  for (let i = 0; i < paths.length && !icon && i < 4; i++) {
+    const data = await getLocal(site.port, paths[i]);
+    const type = data && sniff(data);
+    if (type) icon = { type, data, source: 'live' };
+    else if (i === 0) {
+      const html = (await getLocal(site.port, '/'))?.toString('utf8');
+      if (html) for (const href of iconHrefs(html)) paths.push(path.posix.normalize(`/${href.replace(/^\/+/, '')}`));
     }
-  } catch {}
+  }
   live.set(site.name, { at: Date.now(), icon });
   return icon;
 }

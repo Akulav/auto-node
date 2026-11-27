@@ -24,7 +24,7 @@ const put = (site, rel, data) => {
 
 before(async () => {
   config.load();
-  for (const n of ['plain', 'linked', 'fake', 'none', 'next', 'spa']) await sites.createSite({ name: n, template: 'empty' });
+  for (const n of ['plain', 'linked', 'fake', 'none', 'next', 'spa', 'mono', 'mono2']) await sites.createSite({ name: n, template: 'empty' });
 });
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -59,6 +59,24 @@ test('finds the icon of a server + frontend/ app (AkulavBox layout)', () => {
   const r = icons.findOnDisk('spa');
   assert.equal(r.source, 'frontend/favicon.svg');
   assert.equal(r.type, 'image/svg+xml');
+});
+
+test('finds the icon of a monorepo web page one folder down (FleetView layout)', () => {
+  put('mono', 'Cargo.toml', '[workspace]');
+  put('mono', 'master/public/favicon.png', PNG);
+  put('mono', 'master/public/index.html', '<html><head><link rel="icon" href="/favicon.png"></head></html>');
+  const r = icons.findOnDisk('mono');
+  assert.equal(r.source, 'master/public/favicon.png');
+  assert.equal(r.type, 'image/png');
+});
+
+test('finds a nested favicon even without an index.html', () => {
+  put('mono2', 'apps/web/favicon.svg', SVG);
+  assert.equal(icons.findOnDisk('mono2').source, 'apps/web/favicon.svg');
+});
+
+test('reads icon links from a page', () => {
+  assert.deepEqual(icons.iconHrefs('<link rel="icon" href="/favicon.png?v=1"><link rel="icon" href="data:image/png;base64,AA"><link rel="icon" href="//cdn.x/y.png"><link rel="stylesheet" href="/a.css">'), ['/favicon.png']);
 });
 
 test('finds a Next.js app/icon.png', () => {
