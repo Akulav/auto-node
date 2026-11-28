@@ -34,6 +34,7 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/auth.js` | scrypt password hash, HMAC-signed session cookie, LAN address check |
 | `src/stats.js` | CPU/memory/disk/temperature/network sampling every 2 s, 3-minute history, SSE fan-out |
 | `src/temperatures.js` | Per-part temperatures (processor, graphics card, mainboard, disks…) from `/sys/class/hwmon` + `/sys/class/thermal`, with each part's safe limit |
+| `src/disks.js` | Disk health for the Overview: disks from `/sys/block`, S.M.A.R.T. via `smartctl --json` (skips virtual disks, never wakes a sleeping drive), cached 30 min |
 | `src/sites.js` | Website CRUD, port allocation, start-command detection, ownership |
 | `src/runner.js` | systemd units, status (`systemctl show`), logs (`journalctl`); in-process fallback for dev |
 | `src/proxy.js` | Reverse proxy with SNI, WebSocket upgrade, HTTPS redirect, deploy-hook path |
@@ -46,7 +47,7 @@ The websites themselves are **separate systemd services**, so they keep serving 
 | `src/features.js` | API routes for the per-website features below (registered into the router in `server.js`) |
 | `src/activity.js` | Activity log (JSONL, rotated at 5 MB, kept 30 days, pruned hourly or up to a chosen date) and plain-language labels for dashboard actions |
 | `src/snapshots.js` | Pre-deploy and manual snapshots (`tar`, no `node_modules` or a Rust site's top-level `target/`); restore runs tar as the site user, keeps locked files |
-| `src/history.js` | Last 50 deploys per site with logs |
+| `src/history.js` | Last 5 deploys per site with logs |
 | `src/health.js` | Health-check loop: probe `127.0.0.1:port/path`, restart after N failures, startup grace and cooldown |
 | `src/traffic.js` | www handling, redirects, maintenance page, password protection (scrypt + cache + lockout) |
 | `src/visitors.js` | Visitor stats: hourly/daily buckets, daily-salted visitor hashes, bot filter |

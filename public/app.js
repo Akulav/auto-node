@@ -289,6 +289,51 @@ function metricCard(gauge, label, big, sub, spark, card = h('div', { class: 'car
   return append(card, [h('div', { class: 'gauge-card' }, gauge.el, h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'metric-label' }, label), big, sub)), spark.el]);
 }
 
+const DISK_KIND = { nvme: 'NVMe SSD', ssd: 'SSD', hdd: 'Hard drive' };
+const DISK_SHORT = { nvme: 'NVMe', ssd: 'SSD', hdd: 'HDD' };
+const DISK_PILL = { good: ['good', 'Healthy'], warn: ['warn', 'Check'], bad: ['bad', 'Failing'], unknown: ['', 'Unknown'], sleeping: ['', 'Asleep'], virtual: ['info', 'Virtual'] };
+const fmtHours = (hours) => (hours >= 24 * 365 ? `${(hours / (24 * 365)).toFixed(1)} years on` : hours >= 48 ? `${Math.round(hours / 24)} days on` : `${hours} hours on`);
+
+/** Disk health (S.M.A.R.T.): one compact row per disk. Loads after the page, since smartctl can be slow. */
+function diskHealthCard() {
+  const body = h('div', { class: 'disk-rows' }, h('div', { class: 'small muted' }, 'Checking disks…'));
+  const checked = h('span', { class: 'small muted' });
+  // `wrap`: a warning wraps onto a second line instead of being cut off.
+  const row = (pill, label, sub, title = '', wrap = false) =>
+    h('div', { class: 'disk-row', title }, icon('disk'), h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'label ellipsis' }, label), h('div', { class: wrap ? `small disk-issue ${pill[0]}` : 'small muted ellipsis' }, sub)), h('span', { class: `pill ${pill[0]}` }, h('span', { class: 'dot' }), pill[1]));
+  const paint = (r) => {
+    checked.textContent = r.checkedAt ? `Checked ${fmtAgo(new Date(r.checkedAt).toISOString())}` : '';
+    clear(body);
+    if (r.reason === 'dev') return body.append(row(DISK_PILL.unknown, 'Not checked', 'Disk health is read on the Linux server, not in dev mode.'));
+    if (r.reason === 'virtual') {
+      const total = r.disks.reduce((a, d) => a + d.size, 0);
+      return body.append(row(DISK_PILL.virtual, r.vm ? `Virtual machine (${r.vm})` : 'Virtual disk', total ? `${fmtBytes(total)} · the host computer checks the real disks` : 'The host computer checks the real disks', 'Virtual disks have no health readings of their own. Check the disks on the computer that runs this virtual machine.'));
+    }
+    if (r.reason === 'none') return body.append(row(DISK_PILL.unknown, 'No disks found', 'This computer lists no disks it can check.'));
+    if (r.reason === 'no-tool') {
+      body.append(row(DISK_PILL.unknown, 'Health checks are off', 'Install smartmontools to read disk health.', 'Run on the server: sudo apt install smartmontools'));
+      return body.append(h('div', { class: 'small muted' }, 'Run ', h('span', { class: 'kbd' }, 'sudo apt install smartmontools'), ' on the server, then refresh.'));
+    }
+    for (const d of r.disks) {
+      // One short line (size, type, heat, wear); everything else is in the tooltip.
+      const short = [`${fmtBytes(d.size, 0)} ${DISK_SHORT[d.kind] || ''}`.trim(), d.temperature != null && `${d.temperature} °C`, d.wear != null && `${d.wear}% worn`].filter(Boolean).join(' · ');
+      const facts = [fmtBytes(d.size, 0), DISK_KIND[d.kind] || 'Disk', d.temperature != null && `${d.temperature} °C`, d.powerOnHours != null && fmtHours(d.powerOnHours), d.wear != null && `${d.wear}% worn`].filter(Boolean).join(' · ');
+      const problem = !!d.issues?.length && (d.status === 'warn' || d.status === 'bad');
+      const sub = problem ? d.issues[0] : d.status === 'unknown' ? d.issues?.[0] || 'No health readings' : short;
+      const title = [`/dev/${d.name}${d.model ? ` · ${d.model}` : ''}`, facts, ...(d.issues || []), d.sleeping ? 'Asleep: shown as last checked, so it is not woken up.' : ''].filter(Boolean).join('\n');
+      body.append(row(d.status === 'virtual' ? DISK_PILL.virtual : DISK_PILL[d.status] || DISK_PILL.unknown, d.model || d.name, sub, title, problem));
+    }
+  };
+  const load = (fresh) =>
+    api('GET', `/api/disks${fresh ? '?fresh=1' : ''}`)
+      .then(paint)
+      .catch((err) => clear(body).append(h('div', { class: 'small muted' }, err.message)));
+  let refresh;
+  refresh = h('button', { class: 'btn icon ghost sm', title: 'Check again', 'aria-label': 'Check disk health again', onclick: () => busy(refresh, () => load(true)) }, icon('restart'));
+  load(false);
+  return h('div', { class: 'card', style: 'margin-top:16px' }, h('div', { class: 'row', style: 'margin-bottom:12px;gap:8px' }, h('h3', { class: 'grow' }, 'Disk health'), checked, refresh), body);
+}
+
 async function overviewView() {
   const o = await api('GET', '/api/overview');
   const hour = new Date().getHours();
@@ -429,6 +474,7 @@ async function overviewView() {
             h('div', { class: 'item' }, h('span', { class: `pill ${kind}` }, h('span', { class: 'dot' }), kind === 'good' ? 'OK' : kind === 'bad' ? 'Problem' : kind === 'warn' ? 'Check' : 'Off'), h('div', { class: 'grow' }, h('div', { class: 'label' }, label), h('div', { class: 'small muted' }, text))),
           ),
         ),
+        diskHealthCard(),
         h('div', { class: 'card', style: 'margin-top:16px' }, h('h3', { style: 'margin-bottom:12px' }, 'This computer'), sysKv),
       ),
     ),
@@ -2123,7 +2169,7 @@ async function siteDeploys(site) {
     'div',
     { class: 'list' },
     !history.length && h('div', { class: 'item' }, h('div', { class: 'muted small' }, 'No deploys yet.')),
-    history.slice(0, 20).map((e) => {
+    history.map((e) => {
       const title = e.commit ? h('span', {}, h('code', { class: 'muted' }, e.commit.hash), ' ', e.commit.subject) : e.kind === 'build' ? 'Install & rebuild' : 'Deploy';
       return h(
         'div',
@@ -2178,7 +2224,7 @@ async function siteDeploys(site) {
   const timeline = h(
     'div',
     { class: 'stack', style: 'gap:12px' },
-    head('Deploy history', h('span', { class: 'small muted' }, history.length ? `Last ${Math.min(20, history.length)} of ${history.length}` : '')),
+    head('Deploy history', h('span', { class: 'small muted' }, history.length ? `Last ${history.length}` : '')),
     historyList,
     Object.assign(head('Snapshots', (snapBtn = h('button', { class: 'btn sm', onclick: () => busy(snapBtn, async () => (await api('POST', `/api/sites/${site.name}/snapshots`), toast('Snapshot saved ✓'), render())) }, icon('box'), 'Take Snapshot Now'))), { style: 'margin:12px 0 0' }),
     h('p', { class: 'muted small', style: 'margin-top:-6px' }, `Copies of the website folder for rolling back. Taken before every GitHub deploy; the newest ${keep} are kept.`),

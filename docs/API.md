@@ -18,6 +18,7 @@ The dashboard talks to AutoNode over a small JSON API on port `7070`. All routes
 | Method | Path | Notes |
 | --- | --- | --- |
 | GET | `/api/overview` | Stats, history, websites with status, proxy/Cloudflare/cert summary |
+| GET | `/api/disks?fresh=1` | Disk health (S.M.A.R.T., cached 30 min; `fresh=1` re-reads, at most every 30 s): `{ available, reason?: "dev" \| "virtual" \| "no-tool" \| "none", vm, checkedAt, disks: [{ name, model, size, kind: "nvme" \| "ssd" \| "hdd", status: "good" \| "warn" \| "bad" \| "unknown" \| "sleeping" \| "virtual", issues, temperature, powerOnHours, wear }] }` |
 | GET | `/api/stream` | Server-Sent Events, `stats` event every 2 s: `{ stats, sites }`. `stats.temperatures` is `[{ kind, label, detail, celsius, limit, level }]` (empty without sensors), `stats.temperature` the processor's (else the hottest) |
 
 ## Websites
@@ -135,7 +136,7 @@ Backup JSON format: `{ format: "autonode-backup", formatVersion: 1, autonodeVers
 | POST | `/api/sites/:name/snapshots/:id/restore` | | Roll back (keeps locked files and DATA_DIR, takes a safety snapshot, pauses auto-updates, reinstalls) |
 | DELETE | `/api/sites/:name/snapshots/:id` | | |
 | PATCH | `/api/snapshots` | `{ keep }` | How many per site (1–50) |
-| GET | `/api/sites/:name/history` | | Last 50 deploys: `{ id, kind, reason, by, at, durationMs, ok, error, commit, from, ref, snapshot }` |
+| GET | `/api/sites/:name/history` | | Last 5 deploys: `{ id, kind, reason, by, at, durationMs, ok, error, commit, from, ref, snapshot }` |
 | GET | `/api/sites/:name/history/:id/log` | | Full log of one deploy |
 | POST | `/api/sites/:name/deploy` | `{ ref }` | Deploy a specific earlier commit (pauses auto-updates) |
 | GET | `/api/sites/:name/health` | | `{ settings, status }` |

@@ -67,13 +67,14 @@ export function list(name) {
   return out.sort((a, b) => order(b) - order(a) || b.id.localeCompare(a.id)); // newest first
 }
 
-function prune(name) {
+/** Keep the newest ones. `protect`: a snapshot that must survive (the one being restored). */
+function prune(name, protect = null) {
   const keep = Math.max(1, Math.min(50, Number(config.get().snapshots?.keep) || 5));
-  for (const s of list(name).slice(keep)) remove(name, s.id);
+  for (const s of list(name).slice(keep)) if (s.id !== protect) remove(name, s.id);
 }
 
 /** Take a snapshot. Returns its metadata (or null if the folder is empty). */
-export async function create(name, { reason = 'manual', commit = null } = {}) {
+export async function create(name, { reason = 'manual', commit = null, protect = null } = {}) {
   getSite(name);
   if (!which('tar')) throw new HttpError(500, 'The "tar" program is missing.');
   const src = siteDir(name);
@@ -98,7 +99,7 @@ export async function create(name, { reason = 'manual', commit = null } = {}) {
   fs.chmodSync(file, 0o600);
   const meta = { id, at: new Date().toISOString(), seq: nextSeq(), reason, commit, size: fs.statSync(file).size };
   writeFileAtomic(path.join(dir, `${id}.json`), JSON.stringify(meta));
-  prune(name);
+  prune(name, protect);
   return meta;
 }
 
@@ -118,8 +119,10 @@ export async function restore(name, id) {
   if (!fs.existsSync(file)) throw new HttpError(404, 'That snapshot no longer exists.');
   const { plainFile, copyNoFollow, prepareTarget } = await import('./deploy.js');
 
-  // 1) Safety net: a snapshot of right now, so the restore itself can be undone.
-  const safety = await create(name, { reason: `before restoring ${id}` });
+  // 1) Safety net: a snapshot of right now, so the restore itself can be undone. Its pruning must
+  //    not delete the snapshot we are about to extract (restoring the oldest one) after the folder is emptied.
+  const safety = await create(name, { reason: `before restoring ${id}`, protect: id });
+  if (!fs.existsSync(file)) throw new HttpError(404, 'That snapshot no longer exists.');
 
   // 2) Set locked files aside (they must survive with their current content).
   const keep = lockedFiles(name, site.locks || []).filter((p) => plainFile(site, p));

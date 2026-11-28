@@ -33,6 +33,15 @@ blue "Installing tools (git, unzip, openssl, curl)"
 [ "$PM" = apt ] && apt-get update -qq >/dev/null
 pkg_install git unzip openssl curl ca-certificates
 
+# Disk health on the Overview. Not on a virtual machine: its disks have no S.M.A.R.T. data.
+# Best effort, and without "recommended" extras (on Debian/Ubuntu those pull in a mail server).
+if ! command -v smartctl >/dev/null && ! systemd-detect-virt -q --vm 2>/dev/null; then
+  case "$PM" in
+    apt) DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends smartmontools >/dev/null 2>&1 || true ;;
+    dnf|pacman) pkg_install smartmontools 2>/dev/null || true ;;
+  esac
+fi
+
 need_node=1
 if command -v node >/dev/null; then
   major=$(node -p 'process.versions.node.split(".")[0]')

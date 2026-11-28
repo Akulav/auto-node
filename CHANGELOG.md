@@ -2,6 +2,21 @@
 
 All notable changes to AutoNode are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Disk health on the Overview.** A small card shows each disk's S.M.A.R.T. health (healthy, check, failing), with its temperature, hours powered on and wear for SSDs. Sleeping hard drives are not woken up. On a virtual machine it says the disks are virtual and that the host computer looks after the real ones. The installer adds `smartmontools` on real hardware.
+
+### Changed
+
+- **Deploy history keeps the last 5 deploys** per website (was 50), the same as snapshots. Older logs are removed on the next deploy.
+
+### Fixed
+
+- **Rolling back to the oldest snapshot no longer empties the website.** The safety snapshot taken before a rollback could prune the very snapshot being restored, after the website folder had already been cleared.
+- Two rollbacks of the same website can no longer run at the same time.
+
 ## [1.9.1] - 2026-11-27
 
 ### Fixed

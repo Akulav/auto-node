@@ -63,6 +63,8 @@ export async function usage(name, { fresh = false } = {}) {
 
 /* --------------------------------------------------------------- routes */
 
+const restoring = new Set(); // websites with a rollback in progress
+
 export function register(on, { q }) {
   const site = (p) => sites.getSite(p.name);
 
@@ -76,7 +78,15 @@ export function register(on, { q }) {
   on('POST', '/api/sites/:name/snapshots/:id/restore', async (req, res, p) => {
     const s = site(p);
     if (deploy.jobStatus(s.name).running) throw new HttpError(409, 'Wait for the current deploy to finish first.');
-    const r = await snapshots.restore(s.name, p.id);
+    // Two restores at once would empty and refill the same folder over each other.
+    if (restoring.has(s.name)) throw new HttpError(409, 'A rollback is already running for this website.');
+    restoring.add(s.name);
+    let r;
+    try {
+      r = await snapshots.restore(s.name, p.id);
+    } finally {
+      restoring.delete(s.name);
+    }
     const wasAuto = !!s.git?.autoUpdate;
     if (wasAuto)
       config.update((c) => {
