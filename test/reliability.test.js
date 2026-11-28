@@ -197,7 +197,7 @@ test('restoring the oldest snapshot: the safety snapshot does not prune it away'
   }
 });
 
-test('deploy history keeps the last 5 and their logs only', async () => {
+test('deploy history keeps the last 3 and their logs only', async () => {
   const history = await import('../src/history.js');
   await sites.createSite({ name: 'hist', template: 'empty' });
   const logs = path.join(config.paths.historyDir, 'hist');
@@ -205,10 +205,10 @@ test('deploy history keeps the last 5 and their logs only', async () => {
   fs.mkdirSync(logs, { recursive: true });
   fs.writeFileSync(path.join(config.paths.historyDir, 'hist.json'), JSON.stringify(Array.from({ length: 8 }, (_, i) => ({ id: `old${i}` }))));
   for (let i = 0; i < 8; i++) fs.writeFileSync(path.join(logs, `old${i}.log`), 'x');
-  assert.equal(history.list('hist').length, 5);
+  assert.equal(history.list('hist').length, 3);
   history.add('hist', { id: 'new1' }, 'log');
-  assert.deepEqual(history.list('hist').map((e) => e.id), ['new1', 'old0', 'old1', 'old2', 'old3']);
-  assert.deepEqual(fs.readdirSync(logs).sort(), ['new1.log', 'old0.log', 'old1.log', 'old2.log', 'old3.log']);
+  assert.deepEqual(history.list('hist').map((e) => e.id), ['new1', 'old0', 'old1']);
+  assert.deepEqual(fs.readdirSync(logs).sort(), ['new1.log', 'old0.log', 'old1.log']);
 });
 
 test('activity keeps 30 days and can be cleared up to a date', async () => {

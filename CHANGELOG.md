@@ -4,13 +4,9 @@ All notable changes to AutoNode are documented here. The format follows [Keep a 
 
 ## [Unreleased]
 
-### Added
-
-- **Disk health on the Overview.** A small card shows each disk's S.M.A.R.T. health (healthy, check, failing), with its temperature, hours powered on and wear for SSDs. Sleeping hard drives are not woken up. On a virtual machine it says the disks are virtual and that the host computer looks after the real ones. The installer adds `smartmontools` on real hardware.
-
 ### Changed
 
-- **Deploy history keeps the last 5 deploys** per website (was 50), the same as snapshots. Older logs are removed on the next deploy.
+- **Deploy history keeps the last 3 deploys** per website (was 50). Older logs are removed on the next deploy.
 
 ### Fixed
 

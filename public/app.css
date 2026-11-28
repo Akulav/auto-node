@@ -173,15 +173,6 @@ code, .mono { font-family: var(--mono); font-size: 0.9em; }
 .metric-card .metric-big, .metric-card .metric-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .metric-card .spark { margin-top: auto; height: 70px; }
 
-/* Overview: disk health, one compact row per disk */
-.disk-rows { display: grid; gap: 12px; }
-.disk-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.disk-row > svg { flex: none; width: 20px; height: 20px; color: var(--text-3); }
-.disk-row .pill { flex: none; }
-@media (max-width: 520px) { .disk-row > svg { display: none; } }
-.disk-issue { line-height: 1.35; margin-top: 1px; }
-.disk-issue.warn { color: var(--warn); }
-.disk-issue.bad { color: var(--bad); }
 
 .card {
   background: var(--surface);

@@ -1,10 +1,10 @@
-/** Deploy history: the last 5 deploys per website, each with its full log. */
+/** Deploy history: the last 3 deploys per website, each with its full log. */
 import fs from 'node:fs';
 import path from 'node:path';
 import * as config from './config.js';
 import { HttpError, readJsonFile, writeFileAtomic } from './util.js';
 
-export const KEEP = 5;
+export const KEEP = 3;
 const MAX_LOG = 512 * 1024;
 const listFile = (name) => path.join(config.paths.historyDir, `${name}.json`);
 const logDir = (name) => path.join(config.paths.historyDir, name);

@@ -7,7 +7,6 @@ import zlib from 'node:zlib';
 import * as config from './config.js';
 import * as auth from './auth.js';
 import * as stats from './stats.js';
-import * as disks from './disks.js';
 import * as sites from './sites.js';
 import * as files from './files.js';
 import * as certs from './certs.js';
@@ -124,9 +123,6 @@ on('GET', '/api/overview', async () => ({
   version: config.pkg.version,
   dev: config.DEV,
 }));
-
-// Disk health (S.M.A.R.T.), cached: smartctl is slow and the values change over days.
-on('GET', '/api/disks', async (req) => disks.diskHealth({ fresh: q(req).get('fresh') === '1' }));
 
 on('GET', '/api/stream', async (req, res) => {
   const send = sse(req, res);
@@ -513,7 +509,6 @@ export async function serve() {
   config.load();
   certs.reload();
   stats.startSampling();
-  disks.startChecks();
   await proxy.start(deploy.handleHook);
   // Every website needs a data folder it can write to (repairs ones left owned by root).
   for (const s of sites.allSites()) await sites.ensureDataDir(s.name).catch((err) => console.error(`[sites] ${s.name}: could not prepare the data folder: ${err.message}`));
